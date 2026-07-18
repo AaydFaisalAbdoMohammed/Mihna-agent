@@ -388,32 +388,86 @@ def main():
                             st.toast('🚀 تم إرسال إشعار Telegram إلى هاتفك!', icon='📱')
                         else:
                             st.toast('⚠️ فشل إرسال الإشعار، تحقق من المفاتيح.', icon='⚠️')
+                
+                # عرض النتيجة بشكل احترافي
                 st.success("✅ تم توليد الخطة بنجاح!")
                 st.divider()
-                st.markdown(f"**📌 ملخص المشروع**: {plan_json['project_summary']}")
-                st.markdown(f"**🛠️ التقنيات المقترحة**: {', '.join(plan_json['suggested_tech_stack'])}")
-                st.markdown("### 📋 المهام المقترحة")
-                for idx, task in enumerate(plan_json['generated_tasks'], 1):
-                    emoji = "🔴" if task['priority'] == "High" else "🟡" if task['priority'] == "Medium" else "🟢"
-                    st.markdown(f'''
-                    <div class="card-task">
-                        <strong>{idx}. {task['title']}</strong> {emoji} ({task['priority']})<br>
-                        <small>📅 {task['estimated_days']} أيام</small><br>
-                        <p>{task['description']}</p>
-                    </div>
-                    ''', unsafe_allow_html=True)
+                
+                # 1. عرض ملخص المشروع
+                if plan_json.get("project_summary"):
+                    st.markdown("### 📌 ملخص المشروع")
+                    st.info(plan_json["project_summary"])
+                else:
+                    st.warning("⚠️ لم يتم العثور على ملخص للمشروع")
+                
+                # 2. عرض التقنيات المقترحة
+                tech_stack = plan_json.get("suggested_tech_stack", [])
+                if tech_stack:
+                    st.markdown("### 🛠️ التقنيات المقترحة")
+                    cols = st.columns(min(len(tech_stack), 4))
+                    for i, tech in enumerate(tech_stack):
+                        cols[i % len(cols)].markdown(f"- {tech}")
+                else:
+                    st.warning("⚠️ لم يتم اقتراح أي تقنيات")
+                
+                # 3. عرض المهام (بطاقات أنيقة)
+                tasks = plan_json.get("generated_tasks", [])
+                if tasks:
+                    st.markdown("### 📋 المهام المقترحة")
+                    for idx, task in enumerate(tasks, 1):
+                        title = task.get("title", f"المهمة {idx}")
+                        description = task.get("description", "لا يوجد وصف لهذه المهمة")
+                        days = task.get("estimated_days", "غير محدد")
+                        priority = task.get("priority", "Medium")
+                        emoji = "🔴" if priority == "High" else "🟡" if priority == "Medium" else "🟢"
+                        
+                        with st.container(border=True):
+                            col1, col2 = st.columns([4, 1])
+                            with col1:
+                                st.markdown(f"**{idx}. {title}**")
+                            with col2:
+                                st.markdown(f"{emoji} {priority}")
+                            st.caption(f"📅 المدة: {days} أيام")
+                            st.write(description)
+                else:
+                    st.warning("⚠️ لم يتم توليد أي مهام. حاول إعادة صياغة فكرة المشروع.")
+                
+                # 4. عرض الـ JSON الخام
+                with st.expander("📄 عرض هيكل JSON الخام (للتحميل والفحص)"):
+                    st.json(plan_json)
+                
+                # 5. أزرار التحميل
                 st.divider()
                 st.markdown("### 💾 تحميل الخطة")
+                
                 session_id = str(uuid.uuid4())[:8]
                 timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                base_filename = f"project_plan_{timestamp}_{session_id}"
+                
                 json_str = json.dumps(plan_json, indent=2, ensure_ascii=False)
-                st.download_button("📥 تحميل JSON", data=json_str, file_name=f"plan_{timestamp}_{session_id}.json", mime="application/json")
-                st.markdown("### ⭐ تقييمك للخطة")
-                rating = st.select_slider("ما مدى دقة الخطة؟", options=[1,2,3,4,5], value=4)
-                if rating < 3:
-                    st.warning("سنحسن الخطة بناءً على ملاحظاتك، شكراً لك!")
-                else:
-                    st.success("شكراً لتقييمك الإيجابي!")
+                st.download_button(
+                    label="📥 تحميل خطة العمل (JSON)",
+                    data=json_str,
+                    file_name=f"{base_filename}.json",
+                    mime="application/json",
+                    key="download_json_final"
+                )
+                
+                txt_content = f"=== خطة مشروع {plan_json.get('client_name', 'عميل')} ===\n\n"
+                txt_content += f"الملخص: {plan_json.get('project_summary', 'لا يوجد ملخص')}\n\n"
+                txt_content += "=== المهام ===\n"
+                for i, task in enumerate(tasks, 1):
+                    txt_content += f"{i}. {task.get('title', 'بدون عنوان')} ({task.get('priority', 'Medium')}) - {task.get('estimated_days', '?')} أيام\n"
+                    txt_content += f"   {task.get('description', 'لا يوجد وصف')}\n\n"
+                
+                st.download_button(
+                    label="📥 تحميل خطة العمل (نصي)",
+                    data=txt_content,
+                    file_name=f"{base_filename}.txt",
+                    mime="text/plain",
+                    key="download_txt_final"
+                )
+                
                 st.balloons()
             except Exception as e:
                 st.error(f"❌ خطأ: {e}")
