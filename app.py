@@ -1129,27 +1129,50 @@ def verify_password(password: str, hashed: str) -> bool:
     return bcrypt.checkpw(password.encode(), hashed.encode())
 
 def create_user(username: str, email: str, password: str) -> tuple:
-    """إنشاء مستخدم جديد في قاعدة البيانات."""
-    conn = get_db_connection()
-    if not conn:
-        return False, "تعذر الاتصال بقاعدة البيانات"
-    cursor = conn.cursor(dictionary=True)
-    # التحقق من تكرار اسم المستخدم أو البريد
-    cursor.execute("SELECT id FROM users WHERE username = %s OR email = %s", (username, email))
-    if cursor.fetchone():
-        conn.close()
-        return False, "اسم المستخدم أو البريد الإلكتروني موجود بالفعل"
-    # تشفير كلمة المرور
-    hashed_pw = hash_password(password)
+    """إنشاء مستخدم جديد في قاعدة البيانات (مع معالجة أخطاء محسنة)."""
     try:
-        cursor.execute("INSERT INTO users (username, email, password_hash) VALUES (%s, %s, %s)", 
-                       (username, email, hashed_pw))
-        conn.commit()
-        conn.close()
-        return True, "تم إنشاء الحساب بنجاح! يمكنك تسجيل الدخول الآن."
+        import time
+        start_time = time.time()
+        
+        # التحقق من اتصال قاعدة البيانات مع مهلة
+        conn = None
+        try:
+            conn = get_db_connection()
+        except Exception as e:
+            return False, f"⚠️ فشل الاتصال بقاعدة البيانات: {str(e)[:50]}..."
+        
+        if not conn:
+            return False, "⚠️ تعذر الاتصال بقاعدة البيانات (اتصال فارغ)"
+        
+        cursor = conn.cursor(dictionary=True)
+        
+        # التحقق من تكرار اسم المستخدم أو البريد
+        cursor.execute("SELECT id FROM users WHERE username = %s OR email = %s", (username, email))
+        if cursor.fetchone():
+            conn.close()
+            return False, "⚠️ اسم المستخدم أو البريد الإلكتروني موجود بالفعل"
+        
+        # تشفير كلمة المرور
+        try:
+            hashed_pw = hash_password(password)
+        except Exception as e:
+            conn.close()
+            return False, f"⚠️ فشل تشفير كلمة المرور: {str(e)}"
+        
+        # إدراج المستخدم الجديد
+        try:
+            cursor.execute("INSERT INTO users (username, email, password_hash) VALUES (%s, %s, %s)", 
+                           (username, email, hashed_pw))
+            conn.commit()
+            new_user_id = cursor.lastrowid
+            conn.close()
+            return True, f"✅ تم إنشاء الحساب بنجاح! (معرف المستخدم: {new_user_id})"
+        except Exception as e:
+            conn.close()
+            return False, f"⚠️ فشل إدراج المستخدم: {str(e)[:100]}"
+            
     except Exception as e:
-        conn.close()
-        return False, f"خطأ في إنشاء الحساب: {e}"
+        return False, f"⚠️ خطأ غير متوقع: {str(e)[:100]}"
 
 def login_user(identifier: str, password: str) -> tuple:
     """تسجيل الدخول باستخدام اسم المستخدم أو البريد الإلكتروني."""
