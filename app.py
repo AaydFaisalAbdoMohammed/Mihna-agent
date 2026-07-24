@@ -588,215 +588,6 @@ def get_user_projects(user_email: str = "guest@example.com") -> list:
         return []
 
 
-def display_project_dashboard():
-    st.subheader("📊 لوحة تحكم مشاريعك")
-    
-    # استخدام البريد الموحد
-    projects = get_user_projects("guest@example.com")
-    
-    if not projects:
-        st.info("ℹ️ لم تقم بإنشاء أي مشاريع بعد. استخدم وكيل مهنة لإنشاء خطتك الأولى!")
-        return
-    
-    # تحويل إلى DataFrame للتحليل
-    import pandas as pd
-    import plotly.express as px
-    import plotly.graph_objects as go
-    from io import BytesIO
-    import base64
-    import json
-    
-    # إعداد البيانات مع الحسابات المتقدمة
-    data = []
-    for p in projects:
-        # جلب المهام
-        conn = get_db_connection()
-        if conn:
-            cursor = conn.cursor(dictionary=True)
-            cursor.execute("SELECT * FROM tasks WHERE project_id = %s", (p['id'],))
-            tasks = cursor.fetchall()
-            conn.close()
-        else:
-            tasks = []
-        # حساب المقاييس
-        total_tasks = len(tasks)
-        total_days = sum(t.get('estimated_days', 0) for t in tasks)
-        high = sum(1 for t in tasks if t.get('priority') == 'High')
-        medium = sum(1 for t in tasks if t.get('priority') == 'Medium')
-        low = sum(1 for t in tasks if t.get('priority') == 'Low')
-        # التكلفة التقديرية (150$ لكل يوم)
-        estimated_cost = total_days * 150
-        # درجة المخاطرة
-        high_ratio = high / total_tasks if total_tasks else 0
-        long_tasks = sum(1 for t in tasks if t.get('estimated_days', 0) > 5)
-        long_ratio = long_tasks / total_tasks if total_tasks else 0
-        risk_score = min(100, int((high_ratio * 0.6 + long_ratio * 0.4) * 100))
-        # درجة الثقة (تفاصيل المهام)
-        avg_desc_len = sum(len(t.get('description', '')) for t in tasks) / total_tasks if total_tasks else 0
-        confidence_score = min(100, int((min(total_tasks / 10, 1) * 0.5 + min(avg_desc_len / 100, 1) * 0.5) * 100))
-        
-        data.append({
-            'id': p['id'],
-            'العميل': p['client_name'],
-            'الملخص': p['summary'][:80] + '...' if p['summary'] and len(p['summary']) > 80 else p['summary'],
-            'الميزانية': p['budget_range'],
-            'عدد المهام': total_tasks,
-            'إجمالي الأيام': total_days,
-            'عالية': high,
-            'متوسطة': medium,
-            'منخفضة': low,
-            'التكلفة التقديرية ($)': estimated_cost,
-            'درجة المخاطرة': risk_score,
-            'درجة الثقة': confidence_score,
-            'تاريخ الإنشاء': p['created_at']
-        })
-    
-    df = pd.DataFrame(data)
-    
-    # ===== إحصائيات سريعة =====
-    col1, col2, col3, col4 = st.columns(4)
-    with col1:
-        st.metric("📋 إجمالي المشاريع", len(df))
-    with col2:
-        st.metric("💰 متوسط التكلفة", f"${df['التكلفة التقديرية ($)'].mean():,.0f}")
-    with col3:
-        st.metric("📌 متوسط المهام", f"{df['عدد المهام'].mean():.1f}")
-    with col4:
-        st.metric("⚠️ متوسط المخاطرة", f"{df['درجة المخاطرة'].mean():.0f}%")
-    
-    st.divider()
-    
-    # ===== رسوم بيانية =====
-    col_chart1, col_chart2 = st.columns(2)
-    with col_chart1:
-        # توزيع الأولويات
-        priority_data = df[['العميل', 'عالية', 'متوسطة', 'منخفضة']].melt(id_vars='العميل', var_name='الأولوية', value_name='عدد')
-        fig1 = px.bar(priority_data, x='العميل', y='عدد', color='الأولوية', 
-                      title="توزيع الأولويات", barmode='group',
-                      color_discrete_map={'عالية': '#ff4b4b', 'متوسطة': '#ffa500', 'منخفضة': '#2ecc71'})
-        st.plotly_chart(fig1, use_container_width=True)
-    
-    with col_chart2:
-        # التكلفة مقابل المخاطرة
-        fig2 = px.scatter(df, x='التكلفة التقديرية ($)', y='درجة المخاطرة', 
-                          size='عدد المهام', color='العميل',
-                          title="التكلفة مقابل المخاطرة",
-                          labels={'التكلفة التقديرية ($)': 'التكلفة ($)', 'درجة المخاطرة': 'المخاطرة %'})
-        st.plotly_chart(fig2, use_container_width=True)
-    
-    col_chart3, col_chart4 = st.columns(2)
-    with col_chart3:
-        # متوسط توزيع الأولويات (دائري)
-        avg_high = df['عالية'].mean()
-        avg_medium = df['متوسطة'].mean()
-        avg_low = df['منخفضة'].mean()
-        fig3 = go.Figure(data=[go.Pie(labels=['عالية', 'متوسطة', 'منخفضة'], 
-                                      values=[avg_high, avg_medium, avg_low],
-                                      marker=dict(colors=['#ff4b4b', '#ffa500', '#2ecc71']))])
-        fig3.update_layout(title="متوسط توزيع الأولويات")
-        st.plotly_chart(fig3, use_container_width=True)
-    
-    with col_chart4:
-        # تطور المشاريع
-        df_sorted = df.sort_values('تاريخ الإنشاء')
-        fig4 = px.line(df_sorted, x='تاريخ الإنشاء', y='عدد المهام', 
-                       title="عدد المهام حسب التاريخ", markers=True,
-                       labels={'عدد المهام': 'المهام', 'تاريخ الإنشاء': 'التاريخ'})
-        st.plotly_chart(fig4, use_container_width=True)
-    
-    st.divider()
-    
-    # ===== جدول تحليلات =====
-    st.markdown("### 📊 جدول تحليلات المشاريع")
-    st.dataframe(df, use_container_width=True, hide_index=True)
-    
-    # ===== مقارنة =====
-    if len(df) >= 2:
-        st.markdown("### 🔍 مقارنة بين مشروعين")
-        col1, col2 = st.columns(2)
-        with col1:
-            proj1 = st.selectbox("المشروع الأول", df['العميل'].tolist(), key="comp1")
-        with col2:
-            proj2 = st.selectbox("المشروع الثاني", df['العميل'].tolist(), key="comp2")
-        if proj1 and proj2 and proj1 != proj2:
-            p1 = df[df['العميل'] == proj1].iloc[0]
-            p2 = df[df['العميل'] == proj2].iloc[0]
-            comp_df = pd.DataFrame({
-                'المعيار': ['عدد المهام', 'إجمالي الأيام', 'التكلفة ($)', 'المخاطرة %', 'الثقة %'],
-                proj1: [p1['عدد المهام'], p1['إجمالي الأيام'], p1['التكلفة التقديرية ($)'], p1['درجة المخاطرة'], p1['درجة الثقة']],
-                proj2: [p2['عدد المهام'], p2['إجمالي الأيام'], p2['التكلفة التقديرية ($)'], p2['درجة المخاطرة'], p2['درجة الثقة']]
-            })
-            st.dataframe(comp_df, use_container_width=True, hide_index=True)
-    
-    # ===== تقييم ذكي =====
-    st.markdown("### ⭐ نظام التقييم الذكي")
-    selected = st.selectbox("اختر مشروعاً للتقييم", df['العميل'].tolist(), key="eval")
-    if selected:
-        row = df[df['العميل'] == selected].iloc[0]
-        score = 0
-        if row['عدد المهام'] >= 5: score += 20
-        elif row['عدد المهام'] >= 3: score += 10
-        if row['إجمالي الأيام'] >= 10: score += 20
-        elif row['إجمالي الأيام'] >= 5: score += 10
-        if row['درجة المخاطرة'] < 30: score += 30
-        elif row['درجة المخاطرة'] < 60: score += 15
-        if row['درجة الثقة'] > 70: score += 30
-        elif row['درجة الثقة'] > 50: score += 15
-        st.progress(score / 100)
-        st.metric("جودة الخطة", f"{score}/100")
-        if score >= 80: st.success("✅ خطة ممتازة! جاهزة للتنفيذ.")
-        elif score >= 60: st.info("📌 خطة جيدة، يمكن تحسينها.")
-        else: st.warning("⚠️ تحتاج إلى مراجعة.")
-    
-    # ===== تصدير Excel و PDF =====
-    st.markdown("### 📥 تصدير التقرير")
-    col_exp1, col_exp2 = st.columns(2)
-    with col_exp1:
-        # تصدير Excel
-        output = BytesIO()
-        with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
-            df.to_excel(writer, index=False, sheet_name='المشاريع')
-            writer.close()
-        excel_data = output.getvalue()
-        b64 = base64.b64encode(excel_data).decode()
-        href = f'<a href="data:application/vnd.openxmlformats-officedocument.spreadsheetml.sheet;base64,{b64}" download="projects_report.xlsx">📊 تحميل تقرير Excel</a>'
-        st.markdown(href, unsafe_allow_html=True)
-    
-    with col_exp2:
-        # تصدير PDF (بسيط باستخدام reportlab)
-        try:
-            from reportlab.lib.pagesizes import letter
-            from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
-            from reportlab.lib import colors
-            from reportlab.lib.styles import getSampleStyleSheet
-            pdf_buffer = BytesIO()
-            doc = SimpleDocTemplate(pdf_buffer, pagesize=letter)
-            styles = getSampleStyleSheet()
-            elements = []
-            elements.append(Paragraph("تقرير المشاريع", styles['Title']))
-            elements.append(Spacer(1, 12))
-            # تحويل DataFrame إلى قائمة
-            data_list = [df.columns.tolist()] + df.values.tolist()
-            table = Table(data_list)
-            table.setStyle(TableStyle([
-                ('BACKGROUND', (0, 0), (-1, 0), colors.grey),
-                ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
-                ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
-                ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-                ('FONTSIZE', (0, 0), (-1, 0), 10),
-                ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
-                ('BACKGROUND', (0, 1), (-1, -1), colors.beige),
-                ('GRID', (0, 0), (-1, -1), 1, colors.black)
-            ]))
-            elements.append(table)
-            doc.build(elements)
-            pdf_data = pdf_buffer.getvalue()
-            b64_pdf = base64.b64encode(pdf_data).decode()
-            href_pdf = f'<a href="data:application/pdf;base64,{b64_pdf}" download="projects_report.pdf">📄 تحميل تقرير PDF</a>'
-            st.markdown(href_pdf, unsafe_allow_html=True)
-        except Exception as e:
-            st.warning(f"⚠️ تعذر إنشاء PDF: {e}. تأكد من تثبيت reportlab.")
-
 
 def get_user_projects(user_email: str = "guest@example.com") -> list:
     """استرجاع المشاريع باستخدام بريد الضيف الموحد."""
@@ -1123,110 +914,191 @@ def get_user_projects(user_email: str = "guest@example.com") -> list:
         print(f"⚠️ خطأ في استرجاع المشاريع: {e}")
         return []
 
+
+
 def display_project_dashboard():
+    """لوحة تحكم متطورة مع تحليلات ورسوم بيانية وتصدير."""
     st.subheader("📊 لوحة تحكم مشاريعك")
     
-    # استخدام بريد إلكتروني ثابت للضيف
-    user_email = "guest@example.com"
-    projects = get_user_projects(user_email)
-    
-    # رسالة تصحيح مؤقتة (يمكن إزالتها لاحقاً)
-    st.caption(f"🔍 عدد المشاريع المسترجعة: {len(projects)}")
-    """عرض لوحة تحكم المشاريع المحفوظة."""
-    st.subheader("📊 لوحة تحكم مشاريعك")
-    
-    user_email = st.session_state.get("user_email", "guest@example.com")
-    projects = get_user_projects(user_email)
+    # استخدام البريد الموحد
+    projects = get_user_projects("guest@example.com")
     
     if not projects:
         st.info("ℹ️ لم تقم بإنشاء أي مشاريع بعد. استخدم وكيل مهنة لإنشاء خطتك الأولى!")
         return
     
+    # إعداد البيانات
+    data = []
+    for p in projects:
+        conn = get_db_connection()
+        if conn:
+            cursor = conn.cursor(dictionary=True)
+            cursor.execute("SELECT * FROM tasks WHERE project_id = %s", (p['id'],))
+            tasks = cursor.fetchall()
+            conn.close()
+        else:
+            tasks = []
+        
+        total_tasks = len(tasks)
+        total_days = sum(t.get('estimated_days', 0) for t in tasks)
+        high = sum(1 for t in tasks if t.get('priority') == 'High')
+        medium = sum(1 for t in tasks if t.get('priority') == 'Medium')
+        low = sum(1 for t in tasks if t.get('priority') == 'Low')
+        estimated_cost = total_days * 150
+        high_ratio = high / total_tasks if total_tasks else 0
+        long_tasks = sum(1 for t in tasks if t.get('estimated_days', 0) > 5)
+        long_ratio = long_tasks / total_tasks if total_tasks else 0
+        risk_score = min(100, int((high_ratio * 0.6 + long_ratio * 0.4) * 100))
+        avg_desc_len = sum(len(t.get('description', '')) for t in tasks) / total_tasks if total_tasks else 0
+        confidence_score = min(100, int((min(total_tasks / 10, 1) * 0.5 + min(avg_desc_len / 100, 1) * 0.5) * 100))
+        
+        data.append({
+            'id': p['id'],
+            'العميل': p['client_name'],
+            'الملخص': p['summary'][:80] + '...' if p['summary'] and len(p['summary']) > 80 else p['summary'],
+            'الميزانية': p['budget_range'],
+            'عدد المهام': total_tasks,
+            'إجمالي الأيام': total_days,
+            'عالية': high,
+            'متوسطة': medium,
+            'منخفضة': low,
+            'التكلفة التقديرية ($)': estimated_cost,
+            'درجة المخاطرة': risk_score,
+            'درجة الثقة': confidence_score,
+            'تاريخ الإنشاء': p['created_at']
+        })
+    
+    df = pd.DataFrame(data)
+    
     # إحصائيات سريعة
-    col1, col2, col3 = st.columns(3)
-    with col1:
-        st.metric("📋 عدد المشاريع", len(projects))
-    with col2:
-        # حساب متوسط الميزانية
-        avg_budget = 0
-        for p in projects:
-            try:
-                budget_range = p.get('budget_range', '0-0').split('-')
-                if len(budget_range) == 2:
-                    avg_budget += (int(budget_range[0].strip()) + int(budget_range[1].strip())) / 2
-            except:
-                pass
-        avg_budget = avg_budget / len(projects) if projects else 0
-        st.metric("💰 متوسط الميزانية", f"${avg_budget:,.0f}")
-    with col3:
-        # حساب عدد المهام الكلي
-        total_tasks = 0
-        for p in projects:
-            try:
-                conn = cloudsql_utils.get_db_connection()
-                if conn:
-                    cursor = conn.cursor()
-                    cursor.execute("SELECT COUNT(*) FROM tasks WHERE project_id = %s", (p['id'],))
-                    total_tasks += cursor.fetchone()[0]
-                    conn.close()
-            except:
-                pass
-        st.metric("📌 إجمالي المهام", total_tasks)
+    col1, col2, col3, col4 = st.columns(4)
+    with col1: st.metric("📋 إجمالي المشاريع", len(df))
+    with col2: st.metric("💰 متوسط التكلفة", f"${df['التكلفة التقديرية ($)'].mean():,.0f}")
+    with col3: st.metric("📌 متوسط المهام", f"{df['عدد المهام'].mean():.1f}")
+    with col4: st.metric("⚠️ متوسط المخاطرة", f"{df['درجة المخاطرة'].mean():.0f}%")
     
     st.divider()
     
-    # عرض المشاريع في جدول
-    st.markdown("### 📋 قائمة مشاريعك")
+    # رسوم بيانية
+    col_chart1, col_chart2 = st.columns(2)
+    with col_chart1:
+        priority_data = df[['العميل', 'عالية', 'متوسطة', 'منخفضة']].melt(id_vars='العميل', var_name='الأولوية', value_name='عدد')
+        fig1 = px.bar(priority_data, x='العميل', y='عدد', color='الأولوية', 
+                      title="توزيع الأولويات", barmode='group',
+                      color_discrete_map={'عالية': '#ff4b4b', 'متوسطة': '#ffa500', 'منخفضة': '#2ecc71'})
+        st.plotly_chart(fig1, use_container_width=True)
     
-    # جدول المشاريع
-    table_data = []
-    for p in projects:
-        table_data.append({
-            "🆔": p['id'],
-            "👤 العميل": p['client_name'],
-            "📝 الملخص": p['summary'][:80] + "..." if p['summary'] and len(p['summary']) > 80 else p['summary'],
-            "💰 الميزانية": p['budget_range'],
-            "📅 التاريخ": p['created_at'].strftime("%Y-%m-%d") if p['created_at'] else "غير محدد"
-        })
+    with col_chart2:
+        fig2 = px.scatter(df, x='التكلفة التقديرية ($)', y='درجة المخاطرة', 
+                          size='عدد المهام', color='العميل',
+                          title="التكلفة مقابل المخاطرة")
+        st.plotly_chart(fig2, use_container_width=True)
     
-    st.dataframe(table_data, use_container_width=True, hide_index=True)
+    col_chart3, col_chart4 = st.columns(2)
+    with col_chart3:
+        avg_high = df['عالية'].mean()
+        avg_medium = df['متوسطة'].mean()
+        avg_low = df['منخفضة'].mean()
+        fig3 = go.Figure(data=[go.Pie(labels=['عالية', 'متوسطة', 'منخفضة'], 
+                                      values=[avg_high, avg_medium, avg_low],
+                                      marker=dict(colors=['#ff4b4b', '#ffa500', '#2ecc71']))])
+        fig3.update_layout(title="متوسط توزيع الأولويات")
+        st.plotly_chart(fig3, use_container_width=True)
     
-    # اختيار مشروع لعرض تفاصيله
-    st.markdown("### 🔍 عرض تفاصيل مشروع")
-    project_ids = [f"{p['id']} - {p['client_name']}" for p in projects]
-    selected = st.selectbox("اختر مشروعاً لعرض تفاصيله", project_ids, key="project_selector")
+    with col_chart4:
+        df_sorted = df.sort_values('تاريخ الإنشاء')
+        fig4 = px.line(df_sorted, x='تاريخ الإنشاء', y='عدد المهام', 
+                       title="عدد المهام حسب التاريخ", markers=True)
+        st.plotly_chart(fig4, use_container_width=True)
     
+    st.divider()
+    
+    # جدول تحليلات
+    st.markdown("### 📊 جدول تحليلات المشاريع")
+    st.dataframe(df, use_container_width=True, hide_index=True)
+    
+    # مقارنة
+    if len(df) >= 2:
+        st.markdown("### 🔍 مقارنة بين مشروعين")
+        col1, col2 = st.columns(2)
+        with col1: proj1 = st.selectbox("المشروع الأول", df['العميل'].tolist(), key="comp1")
+        with col2: proj2 = st.selectbox("المشروع الثاني", df['العميل'].tolist(), key="comp2")
+        if proj1 and proj2 and proj1 != proj2:
+            p1 = df[df['العميل'] == proj1].iloc[0]
+            p2 = df[df['العميل'] == proj2].iloc[0]
+            comp_df = pd.DataFrame({
+                'المعيار': ['عدد المهام', 'إجمالي الأيام', 'التكلفة ($)', 'المخاطرة %', 'الثقة %'],
+                proj1: [p1['عدد المهام'], p1['إجمالي الأيام'], p1['التكلفة التقديرية ($)'], p1['درجة المخاطرة'], p1['درجة الثقة']],
+                proj2: [p2['عدد المهام'], p2['إجمالي الأيام'], p2['التكلفة التقديرية ($)'], p2['درجة المخاطرة'], p2['درجة الثقة']]
+            })
+            st.dataframe(comp_df, use_container_width=True, hide_index=True)
+    
+    # تقييم ذكي
+    st.markdown("### ⭐ نظام التقييم الذكي")
+    selected = st.selectbox("اختر مشروعاً للتقييم", df['العميل'].tolist(), key="eval")
     if selected:
-        selected_id = int(selected.split(' - ')[0])
-        # عرض تفاصيل المشروع المختار
-        with st.expander(f"📄 تفاصيل مشروع {selected}", expanded=True):
-            try:
-                conn = cloudsql_utils.get_db_connection()
-                if conn:
-                    cursor = conn.cursor(dictionary=True)
-                    cursor.execute("SELECT * FROM projects WHERE id = %s", (selected_id,))
-                    project = cursor.fetchone()
-                    if project:
-                        st.markdown(f"**👤 العميل:** {project['client_name']}")
-                        st.markdown(f"**📝 الملخص:** {project['summary']}")
-                        st.markdown(f"**🛠️ التقنيات:** {project['tech_stack']}")
-                        st.markdown(f"**💰 الميزانية:** {project['budget_range']}")
-                        st.markdown(f"**📅 تاريخ الإنشاء:** {project['created_at']}")
-                        
-                        # عرض المهام
-                        cursor.execute("SELECT title, description, estimated_days, priority FROM tasks WHERE project_id = %s", (selected_id,))
-                        tasks = cursor.fetchall()
-                        if tasks:
-                            st.markdown("#### 📋 المهام")
-                            for task in tasks:
-                                emoji = "🔴" if task['priority'] == 'High' else "🟡" if task['priority'] == 'Medium' else "🟢"
-                                st.markdown(f"- {emoji} **{task['title']}** ({task['priority']}) - {task['estimated_days']} أيام")
-                                st.caption(f"  {task['description']}")
-                        else:
-                            st.info("لا توجد مهام لهذا المشروع")
-                    conn.close()
-            except Exception as e:
-                st.error(f"⚠️ فشل تحميل تفاصيل المشروع: {e}")
+        row = df[df['العميل'] == selected].iloc[0]
+        score = 0
+        if row['عدد المهام'] >= 5: score += 20
+        elif row['عدد المهام'] >= 3: score += 10
+        if row['إجمالي الأيام'] >= 10: score += 20
+        elif row['إجمالي الأيام'] >= 5: score += 10
+        if row['درجة المخاطرة'] < 30: score += 30
+        elif row['درجة المخاطرة'] < 60: score += 15
+        if row['درجة الثقة'] > 70: score += 30
+        elif row['درجة الثقة'] > 50: score += 15
+        st.progress(score / 100)
+        st.metric("جودة الخطة", f"{score}/100")
+        if score >= 80: st.success("✅ خطة ممتازة! جاهزة للتنفيذ.")
+        elif score >= 60: st.info("📌 خطة جيدة، يمكن تحسينها.")
+        else: st.warning("⚠️ تحتاج إلى مراجعة.")
+    
+    # تصدير Excel و PDF
+    st.markdown("### 📥 تصدير التقرير")
+    col_exp1, col_exp2 = st.columns(2)
+    with col_exp1:
+        output = BytesIO()
+        with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+            df.to_excel(writer, index=False, sheet_name='المشاريع')
+            writer.close()
+        excel_data = output.getvalue()
+        b64 = base64.b64encode(excel_data).decode()
+        href = f'<a href="data:application/vnd.openxmlformats-officedocument.spreadsheetml.sheet;base64,{b64}" download="projects_report.xlsx">📊 تحميل Excel</a>'
+        st.markdown(href, unsafe_allow_html=True)
+    
+    with col_exp2:
+        try:
+            from reportlab.lib.pagesizes import letter
+            from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
+            from reportlab.lib import colors
+            from reportlab.lib.styles import getSampleStyleSheet
+            pdf_buffer = BytesIO()
+            doc = SimpleDocTemplate(pdf_buffer, pagesize=letter)
+            styles = getSampleStyleSheet()
+            elements = []
+            elements.append(Paragraph("تقرير المشاريع", styles['Title']))
+            elements.append(Spacer(1, 12))
+            data_list = [df.columns.tolist()] + df.values.tolist()
+            table = Table(data_list)
+            table.setStyle(TableStyle([
+                ('BACKGROUND', (0, 0), (-1, 0), colors.grey),
+                ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+                ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+                ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+                ('FONTSIZE', (0, 0), (-1, 0), 10),
+                ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
+                ('BACKGROUND', (0, 1), (-1, -1), colors.beige),
+                ('GRID', (0, 0), (-1, -1), 1, colors.black)
+            ]))
+            elements.append(table)
+            doc.build(elements)
+            pdf_data = pdf_buffer.getvalue()
+            b64_pdf = base64.b64encode(pdf_data).decode()
+            href_pdf = f'<a href="data:application/pdf;base64,{b64_pdf}" download="projects_report.pdf">📄 تحميل PDF</a>'
+            st.markdown(href_pdf, unsafe_allow_html=True)
+        except Exception as e:
+            st.warning(f"⚠️ تعذر إنشاء PDF: {e}")
+
 
 def main():
     # الهيدر
