@@ -257,12 +257,142 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
+
+
+# ============================================================
+# دوال عرض وإدارة المشاريع المحفوظة
+# ============================================================
+def get_user_projects(user_id: str = "guest") -> list:
+    """استرجاع جميع مشاريع المستخدم من Cloud SQL."""
+    try:
+        conn = cloudsql_utils.get_db_connection()
+        if not conn:
+            return []
+        cursor = conn.cursor(dictionary=True)
+        cursor.execute("""
+            SELECT id, client_name, summary, tech_stack, budget_range, created_at 
+            FROM projects 
+            WHERE user_id = (SELECT id FROM users WHERE email = %s)
+            ORDER BY created_at DESC
+        """, (user_id,))
+        projects = cursor.fetchall()
+        conn.close()
+        return projects
+    except Exception as e:
+        return []
+
+def display_project_dashboard():
+    """عرض لوحة تحكم المشاريع المحفوظة."""
+    st.subheader("📊 لوحة تحكم مشاريعك")
+    
+    user_email = st.session_state.get("user_email", "guest@example.com")
+    projects = get_user_projects(user_email)
+    
+    if not projects:
+        st.info("ℹ️ لم تقم بإنشاء أي مشاريع بعد. استخدم وكيل مهنة لإنشاء خطتك الأولى!")
+        return
+    
+    # إحصائيات سريعة
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        st.metric("📋 عدد المشاريع", len(projects))
+    with col2:
+        # حساب متوسط الميزانية
+        avg_budget = 0
+        for p in projects:
+            try:
+                budget_range = p.get('budget_range', '0-0').split('-')
+                if len(budget_range) == 2:
+                    avg_budget += (int(budget_range[0].strip()) + int(budget_range[1].strip())) / 2
+            except:
+                pass
+        avg_budget = avg_budget / len(projects) if projects else 0
+        st.metric("💰 متوسط الميزانية", f"${avg_budget:,.0f}")
+    with col3:
+        # حساب عدد المهام الكلي
+        total_tasks = 0
+        for p in projects:
+            try:
+                conn = cloudsql_utils.get_db_connection()
+                if conn:
+                    cursor = conn.cursor()
+                    cursor.execute("SELECT COUNT(*) FROM tasks WHERE project_id = %s", (p['id'],))
+                    total_tasks += cursor.fetchone()[0]
+                    conn.close()
+            except:
+                pass
+        st.metric("📌 إجمالي المهام", total_tasks)
+    
+    st.divider()
+    
+    # عرض المشاريع في جدول
+    st.markdown("### 📋 قائمة مشاريعك")
+    
+    # جدول المشاريع
+    table_data = []
+    for p in projects:
+        table_data.append({
+            "🆔": p['id'],
+            "👤 العميل": p['client_name'],
+            "📝 الملخص": p['summary'][:80] + "..." if p['summary'] and len(p['summary']) > 80 else p['summary'],
+            "💰 الميزانية": p['budget_range'],
+            "📅 التاريخ": p['created_at'].strftime("%Y-%m-%d") if p['created_at'] else "غير محدد"
+        })
+    
+    st.dataframe(table_data, use_container_width=True, hide_index=True)
+    
+    # اختيار مشروع لعرض تفاصيله
+    st.markdown("### 🔍 عرض تفاصيل مشروع")
+    project_ids = [f"{p['id']} - {p['client_name']}" for p in projects]
+    selected = st.selectbox("اختر مشروعاً لعرض تفاصيله", project_ids, key="project_selector")
+    
+    if selected:
+        selected_id = int(selected.split(' - ')[0])
+        # عرض تفاصيل المشروع المختار
+        with st.expander(f"📄 تفاصيل مشروع {selected}", expanded=True):
+            try:
+                conn = cloudsql_utils.get_db_connection()
+                if conn:
+                    cursor = conn.cursor(dictionary=True)
+                    cursor.execute("SELECT * FROM projects WHERE id = %s", (selected_id,))
+                    project = cursor.fetchone()
+                    if project:
+                        st.markdown(f"**👤 العميل:** {project['client_name']}")
+                        st.markdown(f"**📝 الملخص:** {project['summary']}")
+                        st.markdown(f"**🛠️ التقنيات:** {project['tech_stack']}")
+                        st.markdown(f"**💰 الميزانية:** {project['budget_range']}")
+                        st.markdown(f"**📅 تاريخ الإنشاء:** {project['created_at']}")
+                        
+                        # عرض المهام
+                        cursor.execute("SELECT title, description, estimated_days, priority FROM tasks WHERE project_id = %s", (selected_id,))
+                        tasks = cursor.fetchall()
+                        if tasks:
+                            st.markdown("#### 📋 المهام")
+                            for task in tasks:
+                                emoji = "🔴" if task['priority'] == 'High' else "🟡" if task['priority'] == 'Medium' else "🟢"
+                                st.markdown(f"- {emoji} **{task['title']}** ({task['priority']}) - {task['estimated_days']} أيام")
+                                st.caption(f"  {task['description']}")
+                        else:
+                            st.info("لا توجد مهام لهذا المشروع")
+                    conn.close()
+            except Exception as e:
+                st.error(f"⚠️ فشل تحميل تفاصيل المشروع: {e}")
+
 def main():
     # الهيدر
     st.markdown('<div class="main-header"><h1>🧠 وكيل مهنة <span>PRO</span></h1></div>', unsafe_allow_html=True)
     st.markdown('<p style="text-align: center; margin-top: -20px;">حوّل فكرتك إلى خطة هندسية متكاملة في 3 ثوانٍ</p>', unsafe_allow_html=True)
     st.info("💡 **توفر عليك 40 ساعة عمل و 500$ من استشارة مدير مشروع**", icon="💎")
     st.divider()
+    
+    # إضافة تبويبين: "إنشاء خطة" و "لوحة التحكم"
+    tab1, tab2 = st.tabs(["🚀 إنشاء خطة جديدة", "📊 لوحة تحكم مشاريعك"])
+    
+    with tab2:
+        display_project_dashboard()
+        st.divider()
+    
+    with tab1:
 
     # الشريط الجانبي
     with st.sidebar:
