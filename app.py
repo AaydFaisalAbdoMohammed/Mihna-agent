@@ -916,6 +916,8 @@ def get_user_projects(user_email: str = "guest@example.com") -> list:
 
 
 
+
+
 def display_project_dashboard():
     """لوحة تحكم متطورة مع تحليلات ورسوم بيانية وتصدير."""
     st.subheader("📊 لوحة تحكم مشاريعك")
