@@ -12,6 +12,8 @@ import bcrypt
 import re
 import google.generativeai as genai
 import config  # يحتوي على المفاتيح (LEMONSQUEEZY_API_KEY, etc.)
+from cloudsql_utils import get_db_connection
+
 
 # ============================================================
 # دوال الدفع عبر Lemon Squeezy (تكامل حقيقي)
