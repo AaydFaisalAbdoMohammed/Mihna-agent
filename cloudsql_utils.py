@@ -7,27 +7,48 @@ Cloud SQL Utilities - دوال مساعدة للاتصال بقاعدة البي
 
 import os
 import json
+import sys
 import mysql.connector
 from mysql.connector import Error
 
 def get_db_connection():
     """
-    إنشاء اتصال بقاعدة بيانات Cloud SQL مع مهلة زمنية.
+    إنشاء اتصال بقاعدة بيانات Cloud SQL مع مهلة زمنية ومعالجة أخطاء مفصلة.
     """
+    # قراءة بيانات الاتصال من متغيرات البيئة أو استخدام القيم الافتراضية
+    host = os.getenv("DB_HOST", "8.231.102.92")
+    user = os.getenv("DB_USER", "mihna-app-user")
+    password = os.getenv("DB_PASSWORD", "101519Ayad@")
+    database = os.getenv("DB_NAME", "mihna-agent")
+    port = os.getenv("DB_PORT", 3306)
+    
+    print(f"🔍 محاولة الاتصال بـ: host={host}, user={user}, database={database}, port={port}")
+    
     try:
         conn = mysql.connector.connect(
-            host=os.getenv("DB_HOST", "8.231.102.92"),
-            user=os.getenv("DB_USER", "mihna-app-user"),
-            password=os.getenv("DB_PASSWORD", "101519Ayad@"),
-            database=os.getenv("DB_NAME", "mihna-agent"),
-            port=os.getenv("DB_PORT", 3306),
+            host=host,
+            user=user,
+            password=password,
+            database=database,
+            port=port,
             connect_timeout=10,
             connection_timeout=10,
-            use_pure=True
+            use_pure=True,
+            ssl_disabled=False  # تأكد من استخدام SSL إذا كان مطلوباً
         )
-        return conn
+        if conn.is_connected():
+            print("✅ تم الاتصال بقاعدة البيانات بنجاح!")
+            return conn
+        else:
+            print("⚠️ الاتصال بقاعدة البيانات غير نشط")
+            return None
     except Error as e:
-        print(f"⚠️ فشل الاتصال بقاعدة البيانات: {e}")
+        print(f"❌ فشل الاتصال بقاعدة البيانات: {e}")
+        print(f"   - رقم الخطأ: {e.errno}")
+        print(f"   - رسالة الخطأ: {e.msg}")
+        return None
+    except Exception as e:
+        print(f"❌ خطأ غير متوقع: {e}")
         return None
 
 def save_to_cloudsql(project_data, user_id=None):
@@ -42,10 +63,12 @@ def save_to_cloudsql(project_data, user_id=None):
             user_id = None
     
     if user_id is None:
+        print("⚠️ user_id غير موجود في الجلسة")
         return False
     
     conn = get_db_connection()
     if not conn:
+        print("⚠️ تعذر الاتصال بقاعدة البيانات")
         return False
     
     try:
@@ -54,6 +77,7 @@ def save_to_cloudsql(project_data, user_id=None):
         # التحقق من وجود المستخدم
         cursor.execute("SELECT id FROM users WHERE id = %s", (user_id,))
         if not cursor.fetchone():
+            print(f"⚠️ المستخدم {user_id} غير موجود")
             conn.close()
             return False
         
@@ -85,6 +109,7 @@ def save_to_cloudsql(project_data, user_id=None):
         
         conn.commit()
         conn.close()
+        print(f"✅ تم حفظ المشروع (ID: {project_id}) بنجاح")
         return True
     except Error as e:
         print(f"❌ خطأ في حفظ المشروع: {e}")
