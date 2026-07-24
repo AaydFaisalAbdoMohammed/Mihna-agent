@@ -1,117 +1,150 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+
+"""
+Cloud SQL Utilities - دوال مساعدة للاتصال بقاعدة البيانات
+"""
+
 import os
 import json
 import mysql.connector
 from mysql.connector import Error
 
 def get_db_connection():
-    """إنشاء اتصال بقاعدة البيانات مع مهلة زمنية."""
-    import mysql.connector
-    import os
+    """
+    إنشاء اتصال بقاعدة بيانات Cloud SQL مع مهلة زمنية.
+    """
     try:
-        return mysql.connector.connect(
+        conn = mysql.connector.connect(
             host=os.getenv("DB_HOST", "8.231.102.92"),
-            user=os.getenv("DB_USER", "mihna_user"),
-            password=os.getenv("DB_PASSWORD", "Mihna@2026Secure!"),
-            database=os.getenv("DB_NAME", "mihna_db"),
+            user=os.getenv("DB_USER", "mihna_app_user"),
+            password=os.getenv("DB_PASSWORD", "101519Ayad@"),
+            database=os.getenv("DB_NAME", "mihna_agent"),
             port=os.getenv("DB_PORT", 3306),
-            connect_timeout=10,  # مهلة 10 ثواني
-            connection_timeout=10
+            connect_timeout=10,
+            connection_timeout=10,
+            use_pure=True
         )
-    except Exception as e:
+        return conn
+    except Error as e:
         print(f"⚠️ فشل الاتصال بقاعدة البيانات: {e}")
-        return Nonedef save_to_cloudsql(project_data, user_email="guest@example.com"):
-    """حفظ بيانات المشروع والمهام في Cloud SQL مع الحفاظ على البيانات السابقة"""
+        return None
+
+def save_to_cloudsql(project_data, user_id=None):
+    """
+    حفظ خطة المشروع في Cloud SQL.
+    """
+    if user_id is None:
+        try:
+            import streamlit as st
+            user_id = st.session_state.get("user_id")
+        except:
+            user_id = None
+    
+    if user_id is None:
+        return False
+    
     conn = get_db_connection()
     if not conn:
         return False
     
     try:
-        cursor = conn.cursor()
+        cursor = conn.cursor(dictionary=True)
         
-        # 1. جلب أو إنشاء المستخدم 
-        cursor.execute("SELECT id FROM users WHERE email = %s", (user_email,))
-        user = cursor.fetchone()
+        # التحقق من وجود المستخدم
+        cursor.execute("SELECT id FROM users WHERE id = %s", (user_id,))
+        if not cursor.fetchone():
+            conn.close()
+            return False
         
-        if not user:
-            cursor.execute(
-                "INSERT INTO users (email, name, free_uses) VALUES (%s, %s, %s)",
-                (user_email, project_data.get('client_name', 'عميل جديد'), 5)
-            )
-            user_id = cursor.lastrowid
-        else:
-            user_id = user[0]
-
-        # 2. إدراج المشروع
-        cursor.execute(
-            """
-            INSERT INTO projects (user_id, client_name, summary, tech_stack, budget_range)
+        # إدراج المشروع
+        cursor.execute("""
+            INSERT INTO projects (user_id, client_name, summary, tech_stack, budget_range) 
             VALUES (%s, %s, %s, %s, %s)
-            """,
-            (
-                user_id,
-                project_data.get('client_name', 'غير محدد'),
-                project_data.get('project_summary', 'لا يوجد ملخص'),
-                json.dumps(project_data.get('suggested_tech_stack', [])),
-                project_data.get('estimated_budget_range', 'غير محدد')
-            )
-        )
+        """, (
+            user_id,
+            project_data.get('client_name', 'عميل غير معروف'),
+            project_data.get('project_summary', 'لا يوجد ملخص'),
+            json.dumps(project_data.get('suggested_tech_stack', [])),
+            project_data.get('estimated_budget_range', 'غير محدد')
+        ))
         project_id = cursor.lastrowid
-
-        # 3. إدراج المهام المرتبطة
+        
+        # إدراج المهام
         for task in project_data.get('generated_tasks', []):
-            cursor.execute(
-                """
-                INSERT INTO tasks (project_id, title, description, estimated_days, priority)
+            cursor.execute("""
+                INSERT INTO tasks (project_id, title, description, estimated_days, priority) 
                 VALUES (%s, %s, %s, %s, %s)
-                """,
-                (
-                    project_id,
-                    task.get('title', 'مهمة جديدة'),
-                    task.get('description', ''),
-                    task.get('estimated_days', 1),
-                    task.get('priority', 'medium')
-                )
-            )
+            """, (
+                project_id,
+                task.get('title', 'مهمة بدون عنوان'),
+                task.get('description', 'لا يوجد وصف'),
+                task.get('estimated_days', 2),
+                task.get('priority', 'Medium')
+            ))
         
-        # تأكيد الحفظ
         conn.commit()
-        print(f"✅ تم حفظ المشروع والمهام بنجاح في Cloud SQL (ID: {project_id})")
-        return True
-        
-    except Error as e:
-        # التراجع في حال حدوث خطأ للحفاظ على تناسق البيانات وعدم وجود بيانات جزئية
-        conn.rollback()
-        print(f"❌ فشل الحفظ في Cloud SQL: {e}")
-        return False
-    finally:
-        if 'cursor' in locals():
-            cursor.close()
         conn.close()
+        return True
+    except Error as e:
+        print(f"❌ خطأ في حفظ المشروع: {e}")
+        conn.close()
+        return False
 
-def get_similar_projects(idea, top_k=3):
-    """(RAG) استرجاع مشاريع سابقة مشابهة باستخدام البحث النصي"""
+def get_similar_projects(idea: str, top_k: int = 3) -> list:
+    """
+    استرجاع مشاريع سابقة مشابهة باستخدام البحث النصي.
+    """
     conn = get_db_connection()
     if not conn:
         return []
-        
+    
     try:
-        # استخدام القواميس لسهولة التعامل مع البيانات لاحقاً
-        cursor = conn.cursor(dictionary=True) 
-        cursor.execute(
-            """
-            SELECT client_name, summary, tech_stack 
+        cursor = conn.cursor(dictionary=True)
+        # البحث عن مشاريع مشابهة (بسيط)
+        cursor.execute("""
+            SELECT id, client_name, summary, tech_stack 
             FROM projects 
             WHERE summary LIKE %s 
             LIMIT %s
-            """,
-            (f"%{idea}%", top_k)
-        )
+        """, (f"%{idea}%", top_k))
         results = cursor.fetchall()
+        conn.close()
         return results
     except Error as e:
         print(f"⚠️ فشل البحث عن مشاريع مشابهة: {e}")
-        return []
-    finally:
-        if 'cursor' in locals():
-            cursor.close()
         conn.close()
+        return []
+
+def get_all_projects(user_id=None):
+    """
+    استرجاع جميع مشاريع المستخدم (أو الكل إذا لم يُحدد مستخدم).
+    """
+    conn = get_db_connection()
+    if not conn:
+        return []
+    
+    try:
+        cursor = conn.cursor(dictionary=True)
+        if user_id:
+            cursor.execute("""
+                SELECT id, client_name, summary, tech_stack, budget_range, created_at 
+                FROM projects 
+                WHERE user_id = %s
+                ORDER BY created_at DESC
+            """, (user_id,))
+        else:
+            cursor.execute("""
+                SELECT id, client_name, summary, tech_stack, budget_range, created_at 
+                FROM projects 
+                ORDER BY created_at DESC
+            """)
+        results = cursor.fetchall()
+        conn.close()
+        return results
+    except Error as e:
+        print(f"⚠️ فشل استرجاع المشاريع: {e}")
+        conn.close()
+        return []
+
+print("✅ تم تحميل cloudsql_utils.py بنجاح!")
