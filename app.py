@@ -281,6 +281,226 @@ def get_user_projects(user_id: str = "guest") -> list:
     except Exception as e:
         return []
 
+
+
+# ============================================================
+# منصة التحليل المتقدمة للمشاريع
+# ============================================================
+def get_project_details(project_id):
+    """استرجاع كامل تفاصيل المشروع من قاعدة البيانات."""
+    try:
+        conn = cloudsql_utils.get_db_connection()
+        if not conn:
+            return None
+        cursor = conn.cursor(dictionary=True)
+        cursor.execute("SELECT * FROM projects WHERE id = %s", (project_id,))
+        project = cursor.fetchone()
+        if project:
+            cursor.execute("SELECT * FROM tasks WHERE project_id = %s", (project_id,))
+            tasks = cursor.fetchall()
+            project['tasks'] = tasks
+        conn.close()
+        return project
+    except Exception as e:
+        return None
+
+def calculate_project_metrics(project):
+    """حساب مقاييس متقدمة للمشروع."""
+    tasks = project.get('tasks', [])
+    metrics = {
+        'total_tasks': len(tasks),
+        'total_days': sum(t.get('estimated_days', 0) for t in tasks),
+        'high_priority': sum(1 for t in tasks if t.get('priority') == 'High'),
+        'medium_priority': sum(1 for t in tasks if t.get('priority') == 'Medium'),
+        'low_priority': sum(1 for t in tasks if t.get('priority') == 'Low'),
+        'estimated_cost': 0,
+        'risk_score': 0,
+        'confidence_score': 0
+    }
+    # تقدير التكلفة بناءً على الأيام والأولويات
+    if metrics['total_days'] > 0:
+        # فرضية: متوسط تكلفة اليوم = 150 دولار للمطور
+        metrics['estimated_cost'] = metrics['total_days'] * 150
+        # درجة المخاطرة: نسبة المهام عالية الأولوية + نسبة المهام الطويلة (>5 أيام)
+        high_ratio = metrics['high_priority'] / metrics['total_tasks'] if metrics['total_tasks'] > 0 else 0
+        long_tasks = sum(1 for t in tasks if t.get('estimated_days', 0) > 5)
+        long_ratio = long_tasks / metrics['total_tasks'] if metrics['total_tasks'] > 0 else 0
+        metrics['risk_score'] = min(100, int((high_ratio * 0.6 + long_ratio * 0.4) * 100))
+        # درجة الثقة: كلما زادت المهام وزادت التفاصيل، زادت الثقة
+        avg_desc_len = sum(len(t.get('description', '')) for t in tasks) / metrics['total_tasks'] if metrics['total_tasks'] > 0 else 0
+        metrics['confidence_score'] = min(100, int((min(metrics['total_tasks'] / 10, 1) * 0.5 + min(avg_desc_len / 100, 1) * 0.5) * 100))
+    return metrics
+
+def render_advanced_analytics(projects):
+    """عرض تحليلات متقدمة مع رسوم بيانية وجداول تفاعلية."""
+    if not projects:
+        st.info("ℹ️ لا توجد مشاريع لعرضها.")
+        return
+    
+    # تحويل المشاريع إلى DataFrame
+    import pandas as pd
+    import plotly.express as px
+    import plotly.graph_objects as go
+    
+    data = []
+    for p in projects:
+        metrics = calculate_project_metrics(p)
+        data.append({
+            'id': p['id'],
+            'العميل': p['client_name'],
+            'الملخص': p['summary'][:60] + '...',
+            'الميزانية': p['budget_range'],
+            'عدد المهام': metrics['total_tasks'],
+            'إجمالي الأيام': metrics['total_days'],
+            'تكلفة تقديرية ($)': metrics['estimated_cost'],
+            'درجة المخاطرة': metrics['risk_score'],
+            'درجة الثقة': metrics['confidence_score'],
+            'تاريخ الإنشاء': p['created_at']
+        })
+    
+    df = pd.DataFrame(data)
+    
+    # ===== 1. إحصائيات سريعة (بطاقات) =====
+    col1, col2, col3, col4 = st.columns(4)
+    with col1:
+        st.metric("📋 إجمالي المشاريع", len(df))
+    with col2:
+        st.metric("💰 متوسط التكلفة التقديرية", f"${df['تكلفة تقديرية ($)'].mean():,.0f}")
+    with col3:
+        st.metric("📌 متوسط عدد المهام", f"{df['عدد المهام'].mean():.1f}")
+    with col4:
+        st.metric("⚠️ متوسط درجة المخاطرة", f"{df['درجة المخاطرة'].mean():.0f}%")
+    
+    st.divider()
+    
+    # ===== 2. رسوم بيانية تفاعلية =====
+    col_chart1, col_chart2 = st.columns(2)
+    
+    with col_chart1:
+        # مخطط توزيع المهام حسب الأولوية (لكل مشروع)
+        st.markdown("#### 🎯 توزيع الأولويات")
+        priority_data = []
+        for p in projects:
+            tasks = p.get('tasks', [])
+            high = sum(1 for t in tasks if t.get('priority') == 'High')
+            medium = sum(1 for t in tasks if t.get('priority') == 'Medium')
+            low = sum(1 for t in tasks if t.get('priority') == 'Low')
+            priority_data.append({'المشروع': p['client_name'], 'عالية': high, 'متوسطة': medium, 'منخفضة': low})
+        if priority_data:
+            df_priority = pd.DataFrame(priority_data)
+            fig1 = px.bar(df_priority, x='المشروع', y=['عالية', 'متوسطة', 'منخفضة'], 
+                          title="توزيع الأولويات", barmode='group', color_discrete_sequence=['#ff4b4b', '#ffa500', '#2ecc71'])
+            st.plotly_chart(fig1, use_container_width=True)
+    
+    with col_chart2:
+        # مخطط التكلفة التقديرية مقابل المخاطرة
+        st.markdown("#### ⚖️ التكلفة مقابل المخاطرة")
+        fig2 = px.scatter(df, x='تكلفة تقديرية ($)', y='درجة المخاطرة', 
+                          size='عدد المهام', color='العميل',
+                          title="التكلفة مقابل المخاطرة",
+                          labels={'تكلفة تقديرية ($)': 'التكلفة التقديرية ($)', 'درجة المخاطرة': 'نسبة المخاطرة %'})
+        st.plotly_chart(fig2, use_container_width=True)
+    
+    col_chart3, col_chart4 = st.columns(2)
+    
+    with col_chart3:
+        # مخطط دائري لمتوسط توزيع المهام
+        st.markdown("#### 🧩 متوسط توزيع الأولويات")
+        avg_high = df_priority['عالية'].mean() if 'df_priority' in locals() else 0
+        avg_medium = df_priority['متوسطة'].mean() if 'df_priority' in locals() else 0
+        avg_low = df_priority['منخفضة'].mean() if 'df_priority' in locals() else 0
+        fig3 = go.Figure(data=[go.Pie(labels=['عالية', 'متوسطة', 'منخفضة'], 
+                                      values=[avg_high, avg_medium, avg_low],
+                                      marker=dict(colors=['#ff4b4b', '#ffa500', '#2ecc71']))])
+        fig3.update_layout(title="متوسط توزيع الأولويات")
+        st.plotly_chart(fig3, use_container_width=True)
+    
+    with col_chart4:
+        # مخطط زمني (خط) لتطور عدد المشاريع
+        st.markdown("#### 📈 تطور المشاريع")
+        df['تاريخ الإنشاء'] = pd.to_datetime(df['تاريخ الإنشاء'])
+        df_sorted = df.sort_values('تاريخ الإنشاء')
+        fig4 = px.line(df_sorted, x='تاريخ الإنشاء', y='عدد المهام', 
+                       title="عدد المهام حسب تاريخ الإنشاء",
+                       markers=True, labels={'عدد المهام': 'عدد المهام', 'تاريخ الإنشاء': 'التاريخ'})
+        st.plotly_chart(fig4, use_container_width=True)
+    
+    st.divider()
+    
+    # ===== 3. جداول تفاعلية قابلة للفرز =====
+    st.markdown("### 📊 جدول تحليلات المشاريع")
+    st.dataframe(df, use_container_width=True, hide_index=True)
+    
+    # ===== 4. مقارنة بين مشروعين =====
+    st.markdown("### 🔍 مقارنة بين مشروعين")
+    if len(df) >= 2:
+        col_comp1, col_comp2 = st.columns(2)
+        with col_comp1:
+            proj1_name = st.selectbox("اختر المشروع الأول", df['العميل'].tolist(), key="comp1")
+        with col_comp2:
+            proj2_name = st.selectbox("اختر المشروع الثاني", df['العميل'].tolist(), key="comp2")
+        
+        if proj1_name and proj2_name and proj1_name != proj2_name:
+            p1 = df[df['العميل'] == proj1_name].iloc[0]
+            p2 = df[df['العميل'] == proj2_name].iloc[0]
+            comp_df = pd.DataFrame({
+                'المعيار': ['عدد المهام', 'إجمالي الأيام', 'التكلفة التقديرية ($)', 'درجة المخاطرة', 'درجة الثقة'],
+                proj1_name: [p1['عدد المهام'], p1['إجمالي الأيام'], p1['تكلفة تقديرية ($)'], p1['درجة المخاطرة'], p1['درجة الثقة']],
+                proj2_name: [p2['عدد المهام'], p2['إجمالي الأيام'], p2['تكلفة تقديرية ($)'], p2['درجة المخاطرة'], p2['درجة الثقة']]
+            })
+            st.dataframe(comp_df, use_container_width=True, hide_index=True)
+    
+    # ===== 5. نظام تقييم تلقائي للخطط =====
+    st.markdown("### ⭐ نظام التقييم الذكي للخطط")
+    selected_project = st.selectbox("اختر مشروعاً لتقييمه", df['العميل'].tolist(), key="eval_project")
+    if selected_project:
+        project_row = df[df['العميل'] == selected_project].iloc[0]
+        score = 0
+        # معايير التقييم
+        if project_row['عدد المهام'] >= 5:
+            score += 20
+        elif project_row['عدد المهام'] >= 3:
+            score += 10
+        if project_row['إجمالي الأيام'] >= 10:
+            score += 20
+        elif project_row['إجمالي الأيام'] >= 5:
+            score += 10
+        if project_row['درجة المخاطرة'] < 30:
+            score += 30
+        elif project_row['درجة المخاطرة'] < 60:
+            score += 15
+        if project_row['درجة الثقة'] > 70:
+            score += 30
+        elif project_row['درجة الثقة'] > 50:
+            score += 15
+        st.progress(score / 100)
+        st.metric("درجة الجودة", f"{score}/100")
+        if score >= 80:
+            st.success("✅ خطة ممتازة، جاهزة للتنفيذ!")
+        elif score >= 60:
+            st.info("📌 خطة جيدة، يمكن تحسينها.")
+        else:
+            st.warning("⚠️ خطة تحتاج إلى مراجعة وتفاصيل إضافية.")
+
+def get_user_projects(user_id: str = "guest") -> list:
+    """استرجاع جميع مشاريع المستخدم من Cloud SQL."""
+    try:
+        conn = cloudsql_utils.get_db_connection()
+        if not conn:
+            return []
+        cursor = conn.cursor(dictionary=True)
+        cursor.execute("""
+            SELECT id, client_name, summary, tech_stack, budget_range, created_at 
+            FROM projects 
+            WHERE user_id = (SELECT id FROM users WHERE email = %s)
+            ORDER BY created_at DESC
+        """, (user_id,))
+        projects = cursor.fetchall()
+        conn.close()
+        return projects
+    except Exception as e:
+        return []
+
 def display_project_dashboard():
     """عرض لوحة تحكم المشاريع المحفوظة."""
     st.subheader("📊 لوحة تحكم مشاريعك")
@@ -394,252 +614,252 @@ def main():
     
     with tab1:
 
-    # الشريط الجانبي
-    with st.sidebar:
-        st.header("⚙️ إعدادات الاتصال")
-        try:
-            key_preview = config.LEMONSQUEEZY_API_KEY[:10] if config.LEMONSQUEEZY_API_KEY else "غير موجود"
-            st.caption(f"🔑 Lemon Squeezy Key: {key_preview}...")
-        except:
-            st.caption("🔑 Lemon Squeezy Key: غير محمّل")
-
-        gemini_key = st.secrets.get("GEMINI_API_KEY", os.getenv("GEMINI_API_KEY", ""))
-        if gemini_key:
-            st.success("✅ Gemini متصل (جاهز للتوليد)")
-        else:
-            st.error("❌ Gemini غير متصل (يرجى إضافة المفتاح في st.secrets)")
-
-        supabase_url = st.text_input("🔗 Supabase URL (اختياري)", value=os.getenv("SUPABASE_URL", ""))
-        supabase_key = st.text_input("⚡ Supabase Service Key (اختياري)", value=os.getenv("SUPABASE_SERVICE_KEY", ""), type="password")
-
-        st.divider()
-        st.header("🤖 إشعارات Telegram (الميزة الذهبية)")
-        st.caption("احصل على تنبيه فوري على هاتفك عند إنشاء أي مشروع جديد!")
-        telegram_token = st.text_input("🔑 Bot Token", type="password", placeholder="مثال: 123456:ABC-DEF")
-        telegram_chat_id = st.text_input("💬 Chat ID", placeholder="مثال: 987654321")
-        if telegram_token and telegram_chat_id:
-            st.success("✅ سيتم إرسال الإشعارات إلى هاتفك فوراً!")
-
-        st.divider()
-        st.subheader("📊 رصيدك المجاني")
-        init_usage()
-        if st.session_state.is_premium:
-            st.success("✨ مشترك مميز (غير محدود)")
-        else:
-            st.info(f"⚡ متبقي {st.session_state.free_uses} تحويلات مجانية")
-            if st.session_state.free_uses <= 0:
-                st.warning("🚫 انتهت استخداماتك! اشترك للمتابعة.")
-
-        # نموذج الدفع عبر Lemon Squeezy
-        if st.button("💎 اشترك الآن (9.99$ شهرياً)"):
-            st.session_state.show_payment = True
-
-        if st.session_state.get("show_payment", False):
-            with st.expander("💳 إتمام الدفع", expanded=True):
-                st.markdown("**أدخل بريدك الإلكتروني لاستلام رابط الدفع**")
-                with st.form("payment_form"):
-                    user_email = st.text_input("✉️ البريد الإلكتروني")
-                    submitted = st.form_submit_button("🔗 إنشاء رابط الدفع")
-                    if submitted:
-                        if user_email:
-                            try:
-                                checkout_url = create_checkout_url(user_email, "عميل")
-                                st.success("✅ تم إنشاء رابط الدفع بنجاح!")
-                                st.markdown(f"[اضغط هنا لإتمام الدفع]({checkout_url})")
-                                st.session_state.show_payment = False
-                            except Exception as e:
-                                st.error(f"❌ فشل إنشاء رابط الدفع: {e}")
-                        else:
-                            st.warning("⚠️ يرجى إدخال بريدك الإلكتروني")
-
-        with st.expander("💎 خطط الاشتراك"):
-            st.write("**مجاني**: 5 تحويلات")
-            st.write("**شهري**: 9.99$ - تحويلات غير محدودة")
-            st.write("**سنوي**: 99.99$ - خصم 20%")
-
-        st.divider()
-        st.caption("🌟 يثق بنا: 5 عملاء حقيقيون في اليمن")
-        st.caption("🏅 أفضل وكيل تخطيط في الشرق الأوسط")
-
-    # نموذج إدخال المشروع
-    st.markdown("### 📝 أدخل تفاصيل مشروعك")
-    col_q1, col_q2 = st.columns(2)
-    with col_q1:
-        if st.button("📚 منصة تعليمية"):
-            st.session_state.example = "education"
-    with col_q2:
-        if st.button("🛒 متجر إلكتروني"):
-            st.session_state.example = "ecommerce"
-    if "example" not in st.session_state:
-        st.session_state.example = ""
-
-    if st.session_state.example == "education":
-        default_name = "مؤسسة أفق التعليمية"
-        default_idea = "منصة تعليمية تفاعلية للطلاب في اليمن تدعم الفصول المباشرة والاختبارات الآلية ولوحة تحكم للمعلمين، مع نظام دفع محلي وتجربة مستخدم محسّنة لسرعات الإنترنت المنخفضة"
-        default_budget = "8000 - 12000"
-        default_timeline = "8 أسابيع"
-        default_tech = "Flutter, Node.js, Supabase, Gemini AI, WebRTC"
-    elif st.session_state.example == "ecommerce":
-        default_name = "متجر اليمن الرقمي"
-        default_idea = "منصة تجارة إلكترونية بسيطة وآمنة تعمل في اليمن، تدعم المنتجات المحلية والدفع عند الاستلام، مع لوحة تحكم للتجار"
-        default_budget = "5000 - 8000"
-        default_timeline = "6 أسابيع"
-        default_tech = "Flutter, Node.js, Supabase, Stripe"
-    else:
-        default_name = default_idea = default_budget = default_timeline = default_tech = ""
-
-    with st.form("project_form"):
-        col1, col2 = st.columns(2)
-        with col1:
-            client_name = st.text_input("👤 اسم العميل / الشركة", value=default_name)
-        with col2:
-            budget = st.text_input("💰 الميزانية المتوقعة", placeholder="مثال: 2000 - 3000 دولار", value=default_budget)
-        project_idea = st.text_area("💡 صف رؤية أو فكرة مشروعك بالتفصيل", height=120, value=default_idea)
-        word_count = len(project_idea.split()) if project_idea else 0
-        st.caption(f"📝 {word_count} كلمة (يُفضل 50-100 كلمة)")
-        col3, col4 = st.columns(2)
-        with col3:
-            timeline = st.text_input("📅 الجدول الزمني المستهدف", placeholder="4 أسابيع", value=default_timeline)
-        with col4:
-            tech_pref = st.text_input("⚙️ تفضيلات تقنية (اختياري)", value=default_tech)
-        submitted = st.form_submit_button("🚀 توليد الخطة الهندسية الآن")
-
-    # معالجة الطلب
-    if submitted:
-        if not gemini_key:
-            st.error("❌ يرجى إدخال مفتاح Gemini API.")
-            return
-        if not client_name or not project_idea:
-            st.error("❌ يرجى ملء اسم العميل وفكرة المشروع.")
-            return
-        if not can_use():
-            st.error("🚫 لقد استنفذت استخداماتك المجانية. يرجى الاشتراك الشهري للمتابعة!")
-            return
-
-        interview_data = {
-            "name": client_name,
-            "idea": project_idea,
-            "budget": budget if budget else "تحدد بعد التحليل",
-            "timeline": timeline if timeline else "غير محدد",
-            "tech_pref": tech_pref if tech_pref else "اعتمد أفضل الممارسات"
-        }
-
-        with st.spinner('🔄 وكيل مهنة يحلل المتطلبات...'):
+        # الشريط الجانبي
+        with st.sidebar:
+            st.header("⚙️ إعدادات الاتصال")
             try:
-                # 1. توليد الخطة (مع RAG)
-                plan_json = generate_project_plan_safe(gemini_key, interview_data)
-                deduct_usage()
+                key_preview = config.LEMONSQUEEZY_API_KEY[:10] if config.LEMONSQUEEZY_API_KEY else "غير موجود"
+                st.caption(f"🔑 Lemon Squeezy Key: {key_preview}...")
+            except:
+                st.caption("🔑 Lemon Squeezy Key: غير محمّل")
 
-                # 2. حفظ في Supabase (إن وجدت المفاتيح)
-                if supabase_url and supabase_key:
-                    if save_to_supabase(supabase_url, supabase_key, plan_json):
-                        st.success("☁️ تم حفظ الخطة في Supabase!")
-                    else:
-                        st.warning("⚠️ فشل الحفظ في Supabase، لكن الخطة متاحة.")
+            gemini_key = st.secrets.get("GEMINI_API_KEY", os.getenv("GEMINI_API_KEY", ""))
+            if gemini_key:
+                st.success("✅ Gemini متصل (جاهز للتوليد)")
+            else:
+                st.error("❌ Gemini غير متصل (يرجى إضافة المفتاح في st.secrets)")
 
-                # 3. إرسال إشعار Telegram (إن وجدت المفاتيح)
-                if telegram_token and telegram_chat_id:
-                    with st.spinner('📱 جاري إرسال الإشعار إلى Telegram...'):
-                        alert_sent = send_telegram_alert(telegram_token, telegram_chat_id, plan_json)
-                        if alert_sent:
-                            st.toast('🚀 تم إرسال إشعار Telegram إلى هاتفك!', icon='📱')
+            supabase_url = st.text_input("🔗 Supabase URL (اختياري)", value=os.getenv("SUPABASE_URL", ""))
+            supabase_key = st.text_input("⚡ Supabase Service Key (اختياري)", value=os.getenv("SUPABASE_SERVICE_KEY", ""), type="password")
+
+            st.divider()
+            st.header("🤖 إشعارات Telegram (الميزة الذهبية)")
+            st.caption("احصل على تنبيه فوري على هاتفك عند إنشاء أي مشروع جديد!")
+            telegram_token = st.text_input("🔑 Bot Token", type="password", placeholder="مثال: 123456:ABC-DEF")
+            telegram_chat_id = st.text_input("💬 Chat ID", placeholder="مثال: 987654321")
+            if telegram_token and telegram_chat_id:
+                st.success("✅ سيتم إرسال الإشعارات إلى هاتفك فوراً!")
+
+            st.divider()
+            st.subheader("📊 رصيدك المجاني")
+            init_usage()
+            if st.session_state.is_premium:
+                st.success("✨ مشترك مميز (غير محدود)")
+            else:
+                st.info(f"⚡ متبقي {st.session_state.free_uses} تحويلات مجانية")
+                if st.session_state.free_uses <= 0:
+                    st.warning("🚫 انتهت استخداماتك! اشترك للمتابعة.")
+
+            # نموذج الدفع عبر Lemon Squeezy
+            if st.button("💎 اشترك الآن (9.99$ شهرياً)"):
+                st.session_state.show_payment = True
+
+            if st.session_state.get("show_payment", False):
+                with st.expander("💳 إتمام الدفع", expanded=True):
+                    st.markdown("**أدخل بريدك الإلكتروني لاستلام رابط الدفع**")
+                    with st.form("payment_form"):
+                        user_email = st.text_input("✉️ البريد الإلكتروني")
+                        submitted = st.form_submit_button("🔗 إنشاء رابط الدفع")
+                        if submitted:
+                            if user_email:
+                                try:
+                                    checkout_url = create_checkout_url(user_email, "عميل")
+                                    st.success("✅ تم إنشاء رابط الدفع بنجاح!")
+                                    st.markdown(f"[اضغط هنا لإتمام الدفع]({checkout_url})")
+                                    st.session_state.show_payment = False
+                                except Exception as e:
+                                    st.error(f"❌ فشل إنشاء رابط الدفع: {e}")
+                            else:
+                                st.warning("⚠️ يرجى إدخال بريدك الإلكتروني")
+
+            with st.expander("💎 خطط الاشتراك"):
+                st.write("**مجاني**: 5 تحويلات")
+                st.write("**شهري**: 9.99$ - تحويلات غير محدودة")
+                st.write("**سنوي**: 99.99$ - خصم 20%")
+
+            st.divider()
+            st.caption("🌟 يثق بنا: 5 عملاء حقيقيون في اليمن")
+            st.caption("🏅 أفضل وكيل تخطيط في الشرق الأوسط")
+
+        # نموذج إدخال المشروع
+        st.markdown("### 📝 أدخل تفاصيل مشروعك")
+        col_q1, col_q2 = st.columns(2)
+        with col_q1:
+            if st.button("📚 منصة تعليمية"):
+                st.session_state.example = "education"
+        with col_q2:
+            if st.button("🛒 متجر إلكتروني"):
+                st.session_state.example = "ecommerce"
+        if "example" not in st.session_state:
+            st.session_state.example = ""
+
+        if st.session_state.example == "education":
+            default_name = "مؤسسة أفق التعليمية"
+            default_idea = "منصة تعليمية تفاعلية للطلاب في اليمن تدعم الفصول المباشرة والاختبارات الآلية ولوحة تحكم للمعلمين، مع نظام دفع محلي وتجربة مستخدم محسّنة لسرعات الإنترنت المنخفضة"
+            default_budget = "8000 - 12000"
+            default_timeline = "8 أسابيع"
+            default_tech = "Flutter, Node.js, Supabase, Gemini AI, WebRTC"
+        elif st.session_state.example == "ecommerce":
+            default_name = "متجر اليمن الرقمي"
+            default_idea = "منصة تجارة إلكترونية بسيطة وآمنة تعمل في اليمن، تدعم المنتجات المحلية والدفع عند الاستلام، مع لوحة تحكم للتجار"
+            default_budget = "5000 - 8000"
+            default_timeline = "6 أسابيع"
+            default_tech = "Flutter, Node.js, Supabase, Stripe"
+        else:
+            default_name = default_idea = default_budget = default_timeline = default_tech = ""
+
+        with st.form("project_form"):
+            col1, col2 = st.columns(2)
+            with col1:
+                client_name = st.text_input("👤 اسم العميل / الشركة", value=default_name)
+            with col2:
+                budget = st.text_input("💰 الميزانية المتوقعة", placeholder="مثال: 2000 - 3000 دولار", value=default_budget)
+            project_idea = st.text_area("💡 صف رؤية أو فكرة مشروعك بالتفصيل", height=120, value=default_idea)
+            word_count = len(project_idea.split()) if project_idea else 0
+            st.caption(f"📝 {word_count} كلمة (يُفضل 50-100 كلمة)")
+            col3, col4 = st.columns(2)
+            with col3:
+                timeline = st.text_input("📅 الجدول الزمني المستهدف", placeholder="4 أسابيع", value=default_timeline)
+            with col4:
+                tech_pref = st.text_input("⚙️ تفضيلات تقنية (اختياري)", value=default_tech)
+            submitted = st.form_submit_button("🚀 توليد الخطة الهندسية الآن")
+
+        # معالجة الطلب
+        if submitted:
+            if not gemini_key:
+                st.error("❌ يرجى إدخال مفتاح Gemini API.")
+                return
+            if not client_name or not project_idea:
+                st.error("❌ يرجى ملء اسم العميل وفكرة المشروع.")
+                return
+            if not can_use():
+                st.error("🚫 لقد استنفذت استخداماتك المجانية. يرجى الاشتراك الشهري للمتابعة!")
+                return
+
+            interview_data = {
+                "name": client_name,
+                "idea": project_idea,
+                "budget": budget if budget else "تحدد بعد التحليل",
+                "timeline": timeline if timeline else "غير محدد",
+                "tech_pref": tech_pref if tech_pref else "اعتمد أفضل الممارسات"
+            }
+
+            with st.spinner('🔄 وكيل مهنة يحلل المتطلبات...'):
+                try:
+                    # 1. توليد الخطة (مع RAG)
+                    plan_json = generate_project_plan_safe(gemini_key, interview_data)
+                    deduct_usage()
+
+                    # 2. حفظ في Supabase (إن وجدت المفاتيح)
+                    if supabase_url and supabase_key:
+                        if save_to_supabase(supabase_url, supabase_key, plan_json):
+                            st.success("☁️ تم حفظ الخطة في Supabase!")
                         else:
-                            st.toast('⚠️ فشل إرسال الإشعار، تحقق من المفاتيح.', icon='⚠️')
+                            st.warning("⚠️ فشل الحفظ في Supabase، لكن الخطة متاحة.")
 
-                # 4. HITL: عرض المهام للتعديل قبل الاعتماد
-                tasks = plan_json.get("generated_tasks", [])
-                if tasks:
-                    st.info("🔄 يمكنك الآن مراجعة المهام وتعديلها قبل حفظ الخطة.")
-                    edited_tasks = display_tasks_with_hitl(tasks)
-                    if edited_tasks:
-                        plan_json['generated_tasks'] = edited_tasks
-                        st.success("✅ تم اعتماد الخطة المعدلة!")
+                    # 3. إرسال إشعار Telegram (إن وجدت المفاتيح)
+                    if telegram_token and telegram_chat_id:
+                        with st.spinner('📱 جاري إرسال الإشعار إلى Telegram...'):
+                            alert_sent = send_telegram_alert(telegram_token, telegram_chat_id, plan_json)
+                            if alert_sent:
+                                st.toast('🚀 تم إرسال إشعار Telegram إلى هاتفك!', icon='📱')
+                            else:
+                                st.toast('⚠️ فشل إرسال الإشعار، تحقق من المفاتيح.', icon='⚠️')
+
+                    # 4. HITL: عرض المهام للتعديل قبل الاعتماد
+                    tasks = plan_json.get("generated_tasks", [])
+                    if tasks:
+                        st.info("🔄 يمكنك الآن مراجعة المهام وتعديلها قبل حفظ الخطة.")
+                        edited_tasks = display_tasks_with_hitl(tasks)
+                        if edited_tasks:
+                            plan_json['generated_tasks'] = edited_tasks
+                            st.success("✅ تم اعتماد الخطة المعدلة!")
+                        else:
+                            st.warning("⏳ لم يتم اعتماد الخطة بعد (يمكنك متابعة التعديل).")
+
+                    # 5. عرض النتيجة بشكل احترافي
+                    st.success("✅ تم توليد الخطة بنجاح!")
+                    st.divider()
+
+                    if plan_json.get("project_summary"):
+                        st.markdown("### 📌 ملخص المشروع")
+                        st.info(plan_json["project_summary"])
                     else:
-                        st.warning("⏳ لم يتم اعتماد الخطة بعد (يمكنك متابعة التعديل).")
+                        st.warning("⚠️ لم يتم العثور على ملخص للمشروع")
 
-                # 5. عرض النتيجة بشكل احترافي
-                st.success("✅ تم توليد الخطة بنجاح!")
-                st.divider()
+                    tech_stack = plan_json.get("suggested_tech_stack", [])
+                    if tech_stack:
+                        st.markdown("### 🛠️ التقنيات المقترحة")
+                        cols = st.columns(min(len(tech_stack), 4))
+                        for i, tech in enumerate(tech_stack):
+                            cols[i % len(cols)].markdown(f"- {tech}")
+                    else:
+                        st.warning("⚠️ لم يتم اقتراح أي تقنيات")
 
-                if plan_json.get("project_summary"):
-                    st.markdown("### 📌 ملخص المشروع")
-                    st.info(plan_json["project_summary"])
-                else:
-                    st.warning("⚠️ لم يتم العثور على ملخص للمشروع")
+                    if tasks:
+                        st.markdown("### 📋 المهام المقترحة")
+                        for idx, task in enumerate(tasks, 1):
+                            title = task.get("title", f"المهمة {idx}")
+                            description = task.get("description", "لا يوجد وصف لهذه المهمة")
+                            days = task.get("estimated_days", "غير محدد")
+                            priority = task.get("priority", "Medium")
+                            emoji = "🔴" if priority == "High" else "🟡" if priority == "Medium" else "🟢"
+                            with st.container(border=True):
+                                col1, col2 = st.columns([4, 1])
+                                with col1:
+                                    st.markdown(f"**{idx}. {title}**")
+                                with col2:
+                                    st.markdown(f"{emoji} {priority}")
+                                st.caption(f"📅 المدة: {days} أيام")
+                                st.write(description)
+                    else:
+                        st.warning("⚠️ لم يتم توليد أي مهام. حاول إعادة صياغة فكرة المشروع.")
 
-                tech_stack = plan_json.get("suggested_tech_stack", [])
-                if tech_stack:
-                    st.markdown("### 🛠️ التقنيات المقترحة")
-                    cols = st.columns(min(len(tech_stack), 4))
-                    for i, tech in enumerate(tech_stack):
-                        cols[i % len(cols)].markdown(f"- {tech}")
-                else:
-                    st.warning("⚠️ لم يتم اقتراح أي تقنيات")
+                    with st.expander("📄 عرض هيكل JSON الخام (للتحميل والفحص)"):
+                        st.json(plan_json)
 
-                if tasks:
-                    st.markdown("### 📋 المهام المقترحة")
-                    for idx, task in enumerate(tasks, 1):
-                        title = task.get("title", f"المهمة {idx}")
-                        description = task.get("description", "لا يوجد وصف لهذه المهمة")
-                        days = task.get("estimated_days", "غير محدد")
-                        priority = task.get("priority", "Medium")
-                        emoji = "🔴" if priority == "High" else "🟡" if priority == "Medium" else "🟢"
-                        with st.container(border=True):
-                            col1, col2 = st.columns([4, 1])
-                            with col1:
-                                st.markdown(f"**{idx}. {title}**")
-                            with col2:
-                                st.markdown(f"{emoji} {priority}")
-                            st.caption(f"📅 المدة: {days} أيام")
-                            st.write(description)
-                else:
-                    st.warning("⚠️ لم يتم توليد أي مهام. حاول إعادة صياغة فكرة المشروع.")
+                    # أزرار التحميل
+                    st.divider()
+                    st.markdown("### 💾 تحميل الخطة")
+                    session_id = str(uuid.uuid4())[:8]
+                    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                    base_filename = f"project_plan_{timestamp}_{session_id}"
 
-                with st.expander("📄 عرض هيكل JSON الخام (للتحميل والفحص)"):
-                    st.json(plan_json)
+                    json_str = json.dumps(plan_json, indent=2, ensure_ascii=False)
+                    st.download_button(
+                        label="📥 تحميل خطة العمل (JSON)",
+                        data=json_str,
+                        file_name=f"{base_filename}.json",
+                        mime="application/json",
+                        key="download_json_final"
+                    )
 
-                # أزرار التحميل
-                st.divider()
-                st.markdown("### 💾 تحميل الخطة")
-                session_id = str(uuid.uuid4())[:8]
-                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-                base_filename = f"project_plan_{timestamp}_{session_id}"
+                    txt_content = f"=== خطة مشروع {plan_json.get('client_name', 'عميل')} ===\n\n"
+                    txt_content += f"الملخص: {plan_json.get('project_summary', 'لا يوجد ملخص')}\n\n"
+                    txt_content += "=== المهام ===\n"
+                    for i, task in enumerate(tasks, 1):
+                        txt_content += f"{i}. {task.get('title', 'بدون عنوان')} ({task.get('priority', 'Medium')}) - {task.get('estimated_days', '?')} أيام\n"
+                        txt_content += f"   {task.get('description', 'لا يوجد وصف')}\n\n"
 
-                json_str = json.dumps(plan_json, indent=2, ensure_ascii=False)
-                st.download_button(
-                    label="📥 تحميل خطة العمل (JSON)",
-                    data=json_str,
-                    file_name=f"{base_filename}.json",
-                    mime="application/json",
-                    key="download_json_final"
-                )
+                    st.download_button(
+                        label="📥 تحميل خطة العمل (نصي)",
+                        data=txt_content,
+                        file_name=f"{base_filename}.txt",
+                        mime="text/plain",
+                        key="download_txt_final"
+                    )
 
-                txt_content = f"=== خطة مشروع {plan_json.get('client_name', 'عميل')} ===\n\n"
-                txt_content += f"الملخص: {plan_json.get('project_summary', 'لا يوجد ملخص')}\n\n"
-                txt_content += "=== المهام ===\n"
-                for i, task in enumerate(tasks, 1):
-                    txt_content += f"{i}. {task.get('title', 'بدون عنوان')} ({task.get('priority', 'Medium')}) - {task.get('estimated_days', '?')} أيام\n"
-                    txt_content += f"   {task.get('description', 'لا يوجد وصف')}\n\n"
+                    st.markdown("### ⭐ تقييمك للخطة")
+                    rating = st.select_slider("ما مدى دقة الخطة؟", options=[1,2,3,4,5], value=4)
+                    if rating < 3:
+                        st.warning("سنحسن الخطة بناءً على ملاحظاتك، شكراً لك!")
+                    else:
+                        st.success("شكراً لتقييمك الإيجابي!")
 
-                st.download_button(
-                    label="📥 تحميل خطة العمل (نصي)",
-                    data=txt_content,
-                    file_name=f"{base_filename}.txt",
-                    mime="text/plain",
-                    key="download_txt_final"
-                )
+                    st.balloons()
 
-                st.markdown("### ⭐ تقييمك للخطة")
-                rating = st.select_slider("ما مدى دقة الخطة؟", options=[1,2,3,4,5], value=4)
-                if rating < 3:
-                    st.warning("سنحسن الخطة بناءً على ملاحظاتك، شكراً لك!")
-                else:
-                    st.success("شكراً لتقييمك الإيجابي!")
-
-                st.balloons()
-
-            except Exception as e:
-                st.error(f"❌ خطأ: {e}")
+                except Exception as e:
+                    st.error(f"❌ خطأ: {e}")
 
 if __name__ == "__main__":
     main()
