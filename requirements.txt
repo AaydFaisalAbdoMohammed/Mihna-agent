@@ -9,3 +9,8 @@ python-dotenv
 
 plotly
 pandas
+
+pandas
+plotly
+xlsxwriter
+reportlab

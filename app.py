@@ -263,6 +263,34 @@ st.markdown("""
 # دوال عرض وإدارة المشاريع المحفوظة
 # ============================================================
 def get_user_projects(user_email: str = "guest@example.com") -> list:
+    """استرجاع المشاريع باستخدام بريد الضيف الموحد."""
+    try:
+        conn = get_db_connection()
+        if not conn:
+            return []
+        cursor = conn.cursor(dictionary=True)
+        # استخدام البريد الثابت
+        cursor.execute("SELECT id FROM users WHERE email = %s", ("guest@example.com",))
+        user = cursor.fetchone()
+        if not user:
+            # إنشاء مستخدم ضيف إذا لم يكن موجوداً
+            cursor.execute("INSERT INTO users (email, name) VALUES ('guest@example.com', 'ضيف')")
+            conn.commit()
+            cursor.execute("SELECT id FROM users WHERE email = 'guest@example.com'")
+            user = cursor.fetchone()
+        user_id = user['id']
+        cursor.execute("""
+            SELECT id, client_name, summary, tech_stack, budget_range, created_at 
+            FROM projects 
+            WHERE user_id = %s
+            ORDER BY created_at DESC
+        """, (user_id,))
+        projects = cursor.fetchall()
+        conn.close()
+        return projects
+    except Exception as e:
+        print(f"⚠️ خطأ في استرجاع المشاريع: {e}")
+        return []
     """استرجاع جميع مشاريع المستخدم من Cloud SQL (محسّن)."""
     try:
         conn = cloudsql_utils.get_db_connection()
@@ -498,6 +526,570 @@ def render_advanced_analytics(projects):
             st.warning("⚠️ خطة تحتاج إلى مراجعة وتفاصيل إضافية.")
 
 def get_user_projects(user_email: str = "guest@example.com") -> list:
+    """استرجاع المشاريع باستخدام بريد الضيف الموحد."""
+    try:
+        conn = get_db_connection()
+        if not conn:
+            return []
+        cursor = conn.cursor(dictionary=True)
+        # استخدام البريد الثابت
+        cursor.execute("SELECT id FROM users WHERE email = %s", ("guest@example.com",))
+        user = cursor.fetchone()
+        if not user:
+            # إنشاء مستخدم ضيف إذا لم يكن موجوداً
+            cursor.execute("INSERT INTO users (email, name) VALUES ('guest@example.com', 'ضيف')")
+            conn.commit()
+            cursor.execute("SELECT id FROM users WHERE email = 'guest@example.com'")
+            user = cursor.fetchone()
+        user_id = user['id']
+        cursor.execute("""
+            SELECT id, client_name, summary, tech_stack, budget_range, created_at 
+            FROM projects 
+            WHERE user_id = %s
+            ORDER BY created_at DESC
+        """, (user_id,))
+        projects = cursor.fetchall()
+        conn.close()
+        return projects
+    except Exception as e:
+        print(f"⚠️ خطأ في استرجاع المشاريع: {e}")
+        return []
+    """استرجاع جميع مشاريع المستخدم من Cloud SQL (محسّن)."""
+    try:
+        conn = cloudsql_utils.get_db_connection()
+        if not conn:
+            return []
+        cursor = conn.cursor(dictionary=True)
+        # محاولة البحث باستخدام البريد الإلكتروني المحدد
+        cursor.execute("SELECT id FROM users WHERE email = %s", (user_email,))
+        user = cursor.fetchone()
+        if not user:
+            # إذا لم يتم العثور على المستخدم، جرب استخدام "guest@example.com"
+            cursor.execute("SELECT id FROM users WHERE email = 'guest@example.com'")
+            user = cursor.fetchone()
+            if not user:
+                # إذا لم يوجد مستخدم ضيف، قم بإنشائه
+                cursor.execute("INSERT INTO users (email, name) VALUES ('guest@example.com', 'ضيف')")
+                conn.commit()
+                cursor.execute("SELECT id FROM users WHERE email = 'guest@example.com'")
+                user = cursor.fetchone()
+        user_id = user['id']
+        cursor.execute("""
+            SELECT id, client_name, summary, tech_stack, budget_range, created_at 
+            FROM projects 
+            WHERE user_id = %s
+            ORDER BY created_at DESC
+        """, (user_id,))
+        projects = cursor.fetchall()
+        conn.close()
+        return projects
+    except Exception as e:
+        print(f"⚠️ خطأ في استرجاع المشاريع: {e}")
+        return []
+
+
+def display_project_dashboard():
+    st.subheader("📊 لوحة تحكم مشاريعك")
+    
+    # استخدام البريد الموحد
+    projects = get_user_projects("guest@example.com")
+    
+    if not projects:
+        st.info("ℹ️ لم تقم بإنشاء أي مشاريع بعد. استخدم وكيل مهنة لإنشاء خطتك الأولى!")
+        return
+    
+    # تحويل إلى DataFrame للتحليل
+    import pandas as pd
+    import plotly.express as px
+    import plotly.graph_objects as go
+    from io import BytesIO
+    import base64
+    import json
+    
+    # إعداد البيانات مع الحسابات المتقدمة
+    data = []
+    for p in projects:
+        # جلب المهام
+        conn = get_db_connection()
+        if conn:
+            cursor = conn.cursor(dictionary=True)
+            cursor.execute("SELECT * FROM tasks WHERE project_id = %s", (p['id'],))
+            tasks = cursor.fetchall()
+            conn.close()
+        else:
+            tasks = []
+        # حساب المقاييس
+        total_tasks = len(tasks)
+        total_days = sum(t.get('estimated_days', 0) for t in tasks)
+        high = sum(1 for t in tasks if t.get('priority') == 'High')
+        medium = sum(1 for t in tasks if t.get('priority') == 'Medium')
+        low = sum(1 for t in tasks if t.get('priority') == 'Low')
+        # التكلفة التقديرية (150$ لكل يوم)
+        estimated_cost = total_days * 150
+        # درجة المخاطرة
+        high_ratio = high / total_tasks if total_tasks else 0
+        long_tasks = sum(1 for t in tasks if t.get('estimated_days', 0) > 5)
+        long_ratio = long_tasks / total_tasks if total_tasks else 0
+        risk_score = min(100, int((high_ratio * 0.6 + long_ratio * 0.4) * 100))
+        # درجة الثقة (تفاصيل المهام)
+        avg_desc_len = sum(len(t.get('description', '')) for t in tasks) / total_tasks if total_tasks else 0
+        confidence_score = min(100, int((min(total_tasks / 10, 1) * 0.5 + min(avg_desc_len / 100, 1) * 0.5) * 100))
+        
+        data.append({
+            'id': p['id'],
+            'العميل': p['client_name'],
+            'الملخص': p['summary'][:80] + '...' if p['summary'] and len(p['summary']) > 80 else p['summary'],
+            'الميزانية': p['budget_range'],
+            'عدد المهام': total_tasks,
+            'إجمالي الأيام': total_days,
+            'عالية': high,
+            'متوسطة': medium,
+            'منخفضة': low,
+            'التكلفة التقديرية ($)': estimated_cost,
+            'درجة المخاطرة': risk_score,
+            'درجة الثقة': confidence_score,
+            'تاريخ الإنشاء': p['created_at']
+        })
+    
+    df = pd.DataFrame(data)
+    
+    # ===== إحصائيات سريعة =====
+    col1, col2, col3, col4 = st.columns(4)
+    with col1:
+        st.metric("📋 إجمالي المشاريع", len(df))
+    with col2:
+        st.metric("💰 متوسط التكلفة", f"${df['التكلفة التقديرية ($)'].mean():,.0f}")
+    with col3:
+        st.metric("📌 متوسط المهام", f"{df['عدد المهام'].mean():.1f}")
+    with col4:
+        st.metric("⚠️ متوسط المخاطرة", f"{df['درجة المخاطرة'].mean():.0f}%")
+    
+    st.divider()
+    
+    # ===== رسوم بيانية =====
+    col_chart1, col_chart2 = st.columns(2)
+    with col_chart1:
+        # توزيع الأولويات
+        priority_data = df[['العميل', 'عالية', 'متوسطة', 'منخفضة']].melt(id_vars='العميل', var_name='الأولوية', value_name='عدد')
+        fig1 = px.bar(priority_data, x='العميل', y='عدد', color='الأولوية', 
+                      title="توزيع الأولويات", barmode='group',
+                      color_discrete_map={'عالية': '#ff4b4b', 'متوسطة': '#ffa500', 'منخفضة': '#2ecc71'})
+        st.plotly_chart(fig1, use_container_width=True)
+    
+    with col_chart2:
+        # التكلفة مقابل المخاطرة
+        fig2 = px.scatter(df, x='التكلفة التقديرية ($)', y='درجة المخاطرة', 
+                          size='عدد المهام', color='العميل',
+                          title="التكلفة مقابل المخاطرة",
+                          labels={'التكلفة التقديرية ($)': 'التكلفة ($)', 'درجة المخاطرة': 'المخاطرة %'})
+        st.plotly_chart(fig2, use_container_width=True)
+    
+    col_chart3, col_chart4 = st.columns(2)
+    with col_chart3:
+        # متوسط توزيع الأولويات (دائري)
+        avg_high = df['عالية'].mean()
+        avg_medium = df['متوسطة'].mean()
+        avg_low = df['منخفضة'].mean()
+        fig3 = go.Figure(data=[go.Pie(labels=['عالية', 'متوسطة', 'منخفضة'], 
+                                      values=[avg_high, avg_medium, avg_low],
+                                      marker=dict(colors=['#ff4b4b', '#ffa500', '#2ecc71']))])
+        fig3.update_layout(title="متوسط توزيع الأولويات")
+        st.plotly_chart(fig3, use_container_width=True)
+    
+    with col_chart4:
+        # تطور المشاريع
+        df_sorted = df.sort_values('تاريخ الإنشاء')
+        fig4 = px.line(df_sorted, x='تاريخ الإنشاء', y='عدد المهام', 
+                       title="عدد المهام حسب التاريخ", markers=True,
+                       labels={'عدد المهام': 'المهام', 'تاريخ الإنشاء': 'التاريخ'})
+        st.plotly_chart(fig4, use_container_width=True)
+    
+    st.divider()
+    
+    # ===== جدول تحليلات =====
+    st.markdown("### 📊 جدول تحليلات المشاريع")
+    st.dataframe(df, use_container_width=True, hide_index=True)
+    
+    # ===== مقارنة =====
+    if len(df) >= 2:
+        st.markdown("### 🔍 مقارنة بين مشروعين")
+        col1, col2 = st.columns(2)
+        with col1:
+            proj1 = st.selectbox("المشروع الأول", df['العميل'].tolist(), key="comp1")
+        with col2:
+            proj2 = st.selectbox("المشروع الثاني", df['العميل'].tolist(), key="comp2")
+        if proj1 and proj2 and proj1 != proj2:
+            p1 = df[df['العميل'] == proj1].iloc[0]
+            p2 = df[df['العميل'] == proj2].iloc[0]
+            comp_df = pd.DataFrame({
+                'المعيار': ['عدد المهام', 'إجمالي الأيام', 'التكلفة ($)', 'المخاطرة %', 'الثقة %'],
+                proj1: [p1['عدد المهام'], p1['إجمالي الأيام'], p1['التكلفة التقديرية ($)'], p1['درجة المخاطرة'], p1['درجة الثقة']],
+                proj2: [p2['عدد المهام'], p2['إجمالي الأيام'], p2['التكلفة التقديرية ($)'], p2['درجة المخاطرة'], p2['درجة الثقة']]
+            })
+            st.dataframe(comp_df, use_container_width=True, hide_index=True)
+    
+    # ===== تقييم ذكي =====
+    st.markdown("### ⭐ نظام التقييم الذكي")
+    selected = st.selectbox("اختر مشروعاً للتقييم", df['العميل'].tolist(), key="eval")
+    if selected:
+        row = df[df['العميل'] == selected].iloc[0]
+        score = 0
+        if row['عدد المهام'] >= 5: score += 20
+        elif row['عدد المهام'] >= 3: score += 10
+        if row['إجمالي الأيام'] >= 10: score += 20
+        elif row['إجمالي الأيام'] >= 5: score += 10
+        if row['درجة المخاطرة'] < 30: score += 30
+        elif row['درجة المخاطرة'] < 60: score += 15
+        if row['درجة الثقة'] > 70: score += 30
+        elif row['درجة الثقة'] > 50: score += 15
+        st.progress(score / 100)
+        st.metric("جودة الخطة", f"{score}/100")
+        if score >= 80: st.success("✅ خطة ممتازة! جاهزة للتنفيذ.")
+        elif score >= 60: st.info("📌 خطة جيدة، يمكن تحسينها.")
+        else: st.warning("⚠️ تحتاج إلى مراجعة.")
+    
+    # ===== تصدير Excel و PDF =====
+    st.markdown("### 📥 تصدير التقرير")
+    col_exp1, col_exp2 = st.columns(2)
+    with col_exp1:
+        # تصدير Excel
+        output = BytesIO()
+        with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+            df.to_excel(writer, index=False, sheet_name='المشاريع')
+            writer.close()
+        excel_data = output.getvalue()
+        b64 = base64.b64encode(excel_data).decode()
+        href = f'<a href="data:application/vnd.openxmlformats-officedocument.spreadsheetml.sheet;base64,{b64}" download="projects_report.xlsx">📊 تحميل تقرير Excel</a>'
+        st.markdown(href, unsafe_allow_html=True)
+    
+    with col_exp2:
+        # تصدير PDF (بسيط باستخدام reportlab)
+        try:
+            from reportlab.lib.pagesizes import letter
+            from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
+            from reportlab.lib import colors
+            from reportlab.lib.styles import getSampleStyleSheet
+            pdf_buffer = BytesIO()
+            doc = SimpleDocTemplate(pdf_buffer, pagesize=letter)
+            styles = getSampleStyleSheet()
+            elements = []
+            elements.append(Paragraph("تقرير المشاريع", styles['Title']))
+            elements.append(Spacer(1, 12))
+            # تحويل DataFrame إلى قائمة
+            data_list = [df.columns.tolist()] + df.values.tolist()
+            table = Table(data_list)
+            table.setStyle(TableStyle([
+                ('BACKGROUND', (0, 0), (-1, 0), colors.grey),
+                ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+                ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+                ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+                ('FONTSIZE', (0, 0), (-1, 0), 10),
+                ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
+                ('BACKGROUND', (0, 1), (-1, -1), colors.beige),
+                ('GRID', (0, 0), (-1, -1), 1, colors.black)
+            ]))
+            elements.append(table)
+            doc.build(elements)
+            pdf_data = pdf_buffer.getvalue()
+            b64_pdf = base64.b64encode(pdf_data).decode()
+            href_pdf = f'<a href="data:application/pdf;base64,{b64_pdf}" download="projects_report.pdf">📄 تحميل تقرير PDF</a>'
+            st.markdown(href_pdf, unsafe_allow_html=True)
+        except Exception as e:
+            st.warning(f"⚠️ تعذر إنشاء PDF: {e}. تأكد من تثبيت reportlab.")
+
+
+def get_user_projects(user_email: str = "guest@example.com") -> list:
+    """استرجاع المشاريع باستخدام بريد الضيف الموحد."""
+    try:
+        conn = get_db_connection()
+        if not conn:
+            return []
+        cursor = conn.cursor(dictionary=True)
+        # استخدام البريد الثابت
+        cursor.execute("SELECT id FROM users WHERE email = %s", ("guest@example.com",))
+        user = cursor.fetchone()
+        if not user:
+            # إنشاء مستخدم ضيف إذا لم يكن موجوداً
+            cursor.execute("INSERT INTO users (email, name) VALUES ('guest@example.com', 'ضيف')")
+            conn.commit()
+            cursor.execute("SELECT id FROM users WHERE email = 'guest@example.com'")
+            user = cursor.fetchone()
+        user_id = user['id']
+        cursor.execute("""
+            SELECT id, client_name, summary, tech_stack, budget_range, created_at 
+            FROM projects 
+            WHERE user_id = %s
+            ORDER BY created_at DESC
+        """, (user_id,))
+        projects = cursor.fetchall()
+        conn.close()
+        return projects
+    except Exception as e:
+        print(f"⚠️ خطأ في استرجاع المشاريع: {e}")
+        return []
+    """استرجاع جميع مشاريع المستخدم من Cloud SQL (محسّن)."""
+    try:
+        conn = cloudsql_utils.get_db_connection()
+        if not conn:
+            return []
+        cursor = conn.cursor(dictionary=True)
+        # محاولة البحث باستخدام البريد الإلكتروني المحدد
+        cursor.execute("SELECT id FROM users WHERE email = %s", (user_email,))
+        user = cursor.fetchone()
+        if not user:
+            # إذا لم يتم العثور على المستخدم، جرب استخدام "guest@example.com"
+            cursor.execute("SELECT id FROM users WHERE email = 'guest@example.com'")
+            user = cursor.fetchone()
+            if not user:
+                # إذا لم يوجد مستخدم ضيف، قم بإنشائه
+                cursor.execute("INSERT INTO users (email, name) VALUES ('guest@example.com', 'ضيف')")
+                conn.commit()
+                cursor.execute("SELECT id FROM users WHERE email = 'guest@example.com'")
+                user = cursor.fetchone()
+        user_id = user['id']
+        cursor.execute("""
+            SELECT id, client_name, summary, tech_stack, budget_range, created_at 
+            FROM projects 
+            WHERE user_id = %s
+            ORDER BY created_at DESC
+        """, (user_id,))
+        projects = cursor.fetchall()
+        conn.close()
+        return projects
+    except Exception as e:
+        print(f"⚠️ خطأ في استرجاع المشاريع: {e}")
+        return []
+
+
+
+# ============================================================
+# منصة التحليل المتقدمة للمشاريع
+# ============================================================
+def get_project_details(project_id):
+    """استرجاع كامل تفاصيل المشروع من قاعدة البيانات."""
+    try:
+        conn = cloudsql_utils.get_db_connection()
+        if not conn:
+            return None
+        cursor = conn.cursor(dictionary=True)
+        cursor.execute("SELECT * FROM projects WHERE id = %s", (project_id,))
+        project = cursor.fetchone()
+        if project:
+            cursor.execute("SELECT * FROM tasks WHERE project_id = %s", (project_id,))
+            tasks = cursor.fetchall()
+            project['tasks'] = tasks
+        conn.close()
+        return project
+    except Exception as e:
+        return None
+
+def calculate_project_metrics(project):
+    """حساب مقاييس متقدمة للمشروع."""
+    tasks = project.get('tasks', [])
+    metrics = {
+        'total_tasks': len(tasks),
+        'total_days': sum(t.get('estimated_days', 0) for t in tasks),
+        'high_priority': sum(1 for t in tasks if t.get('priority') == 'High'),
+        'medium_priority': sum(1 for t in tasks if t.get('priority') == 'Medium'),
+        'low_priority': sum(1 for t in tasks if t.get('priority') == 'Low'),
+        'estimated_cost': 0,
+        'risk_score': 0,
+        'confidence_score': 0
+    }
+    # تقدير التكلفة بناءً على الأيام والأولويات
+    if metrics['total_days'] > 0:
+        # فرضية: متوسط تكلفة اليوم = 150 دولار للمطور
+        metrics['estimated_cost'] = metrics['total_days'] * 150
+        # درجة المخاطرة: نسبة المهام عالية الأولوية + نسبة المهام الطويلة (>5 أيام)
+        high_ratio = metrics['high_priority'] / metrics['total_tasks'] if metrics['total_tasks'] > 0 else 0
+        long_tasks = sum(1 for t in tasks if t.get('estimated_days', 0) > 5)
+        long_ratio = long_tasks / metrics['total_tasks'] if metrics['total_tasks'] > 0 else 0
+        metrics['risk_score'] = min(100, int((high_ratio * 0.6 + long_ratio * 0.4) * 100))
+        # درجة الثقة: كلما زادت المهام وزادت التفاصيل، زادت الثقة
+        avg_desc_len = sum(len(t.get('description', '')) for t in tasks) / metrics['total_tasks'] if metrics['total_tasks'] > 0 else 0
+        metrics['confidence_score'] = min(100, int((min(metrics['total_tasks'] / 10, 1) * 0.5 + min(avg_desc_len / 100, 1) * 0.5) * 100))
+    return metrics
+
+def render_advanced_analytics(projects):
+    """عرض تحليلات متقدمة مع رسوم بيانية وجداول تفاعلية."""
+    if not projects:
+        st.info("ℹ️ لا توجد مشاريع لعرضها.")
+        return
+    
+    # تحويل المشاريع إلى DataFrame
+    import pandas as pd
+    import plotly.express as px
+    import plotly.graph_objects as go
+    
+    data = []
+    for p in projects:
+        metrics = calculate_project_metrics(p)
+        data.append({
+            'id': p['id'],
+            'العميل': p['client_name'],
+            'الملخص': p['summary'][:60] + '...',
+            'الميزانية': p['budget_range'],
+            'عدد المهام': metrics['total_tasks'],
+            'إجمالي الأيام': metrics['total_days'],
+            'تكلفة تقديرية ($)': metrics['estimated_cost'],
+            'درجة المخاطرة': metrics['risk_score'],
+            'درجة الثقة': metrics['confidence_score'],
+            'تاريخ الإنشاء': p['created_at']
+        })
+    
+    df = pd.DataFrame(data)
+    
+    # ===== 1. إحصائيات سريعة (بطاقات) =====
+    col1, col2, col3, col4 = st.columns(4)
+    with col1:
+        st.metric("📋 إجمالي المشاريع", len(df))
+    with col2:
+        st.metric("💰 متوسط التكلفة التقديرية", f"${df['تكلفة تقديرية ($)'].mean():,.0f}")
+    with col3:
+        st.metric("📌 متوسط عدد المهام", f"{df['عدد المهام'].mean():.1f}")
+    with col4:
+        st.metric("⚠️ متوسط درجة المخاطرة", f"{df['درجة المخاطرة'].mean():.0f}%")
+    
+    st.divider()
+    
+    # ===== 2. رسوم بيانية تفاعلية =====
+    col_chart1, col_chart2 = st.columns(2)
+    
+    with col_chart1:
+        # مخطط توزيع المهام حسب الأولوية (لكل مشروع)
+        st.markdown("#### 🎯 توزيع الأولويات")
+        priority_data = []
+        for p in projects:
+            tasks = p.get('tasks', [])
+            high = sum(1 for t in tasks if t.get('priority') == 'High')
+            medium = sum(1 for t in tasks if t.get('priority') == 'Medium')
+            low = sum(1 for t in tasks if t.get('priority') == 'Low')
+            priority_data.append({'المشروع': p['client_name'], 'عالية': high, 'متوسطة': medium, 'منخفضة': low})
+        if priority_data:
+            df_priority = pd.DataFrame(priority_data)
+            fig1 = px.bar(df_priority, x='المشروع', y=['عالية', 'متوسطة', 'منخفضة'], 
+                          title="توزيع الأولويات", barmode='group', color_discrete_sequence=['#ff4b4b', '#ffa500', '#2ecc71'])
+            st.plotly_chart(fig1, use_container_width=True)
+    
+    with col_chart2:
+        # مخطط التكلفة التقديرية مقابل المخاطرة
+        st.markdown("#### ⚖️ التكلفة مقابل المخاطرة")
+        fig2 = px.scatter(df, x='تكلفة تقديرية ($)', y='درجة المخاطرة', 
+                          size='عدد المهام', color='العميل',
+                          title="التكلفة مقابل المخاطرة",
+                          labels={'تكلفة تقديرية ($)': 'التكلفة التقديرية ($)', 'درجة المخاطرة': 'نسبة المخاطرة %'})
+        st.plotly_chart(fig2, use_container_width=True)
+    
+    col_chart3, col_chart4 = st.columns(2)
+    
+    with col_chart3:
+        # مخطط دائري لمتوسط توزيع المهام
+        st.markdown("#### 🧩 متوسط توزيع الأولويات")
+        avg_high = df_priority['عالية'].mean() if 'df_priority' in locals() else 0
+        avg_medium = df_priority['متوسطة'].mean() if 'df_priority' in locals() else 0
+        avg_low = df_priority['منخفضة'].mean() if 'df_priority' in locals() else 0
+        fig3 = go.Figure(data=[go.Pie(labels=['عالية', 'متوسطة', 'منخفضة'], 
+                                      values=[avg_high, avg_medium, avg_low],
+                                      marker=dict(colors=['#ff4b4b', '#ffa500', '#2ecc71']))])
+        fig3.update_layout(title="متوسط توزيع الأولويات")
+        st.plotly_chart(fig3, use_container_width=True)
+    
+    with col_chart4:
+        # مخطط زمني (خط) لتطور عدد المشاريع
+        st.markdown("#### 📈 تطور المشاريع")
+        df['تاريخ الإنشاء'] = pd.to_datetime(df['تاريخ الإنشاء'])
+        df_sorted = df.sort_values('تاريخ الإنشاء')
+        fig4 = px.line(df_sorted, x='تاريخ الإنشاء', y='عدد المهام', 
+                       title="عدد المهام حسب تاريخ الإنشاء",
+                       markers=True, labels={'عدد المهام': 'عدد المهام', 'تاريخ الإنشاء': 'التاريخ'})
+        st.plotly_chart(fig4, use_container_width=True)
+    
+    st.divider()
+    
+    # ===== 3. جداول تفاعلية قابلة للفرز =====
+    st.markdown("### 📊 جدول تحليلات المشاريع")
+    st.dataframe(df, use_container_width=True, hide_index=True)
+    
+    # ===== 4. مقارنة بين مشروعين =====
+    st.markdown("### 🔍 مقارنة بين مشروعين")
+    if len(df) >= 2:
+        col_comp1, col_comp2 = st.columns(2)
+        with col_comp1:
+            proj1_name = st.selectbox("اختر المشروع الأول", df['العميل'].tolist(), key="comp1")
+        with col_comp2:
+            proj2_name = st.selectbox("اختر المشروع الثاني", df['العميل'].tolist(), key="comp2")
+        
+        if proj1_name and proj2_name and proj1_name != proj2_name:
+            p1 = df[df['العميل'] == proj1_name].iloc[0]
+            p2 = df[df['العميل'] == proj2_name].iloc[0]
+            comp_df = pd.DataFrame({
+                'المعيار': ['عدد المهام', 'إجمالي الأيام', 'التكلفة التقديرية ($)', 'درجة المخاطرة', 'درجة الثقة'],
+                proj1_name: [p1['عدد المهام'], p1['إجمالي الأيام'], p1['تكلفة تقديرية ($)'], p1['درجة المخاطرة'], p1['درجة الثقة']],
+                proj2_name: [p2['عدد المهام'], p2['إجمالي الأيام'], p2['تكلفة تقديرية ($)'], p2['درجة المخاطرة'], p2['درجة الثقة']]
+            })
+            st.dataframe(comp_df, use_container_width=True, hide_index=True)
+    
+    # ===== 5. نظام تقييم تلقائي للخطط =====
+    st.markdown("### ⭐ نظام التقييم الذكي للخطط")
+    selected_project = st.selectbox("اختر مشروعاً لتقييمه", df['العميل'].tolist(), key="eval_project")
+    if selected_project:
+        project_row = df[df['العميل'] == selected_project].iloc[0]
+        score = 0
+        # معايير التقييم
+        if project_row['عدد المهام'] >= 5:
+            score += 20
+        elif project_row['عدد المهام'] >= 3:
+            score += 10
+        if project_row['إجمالي الأيام'] >= 10:
+            score += 20
+        elif project_row['إجمالي الأيام'] >= 5:
+            score += 10
+        if project_row['درجة المخاطرة'] < 30:
+            score += 30
+        elif project_row['درجة المخاطرة'] < 60:
+            score += 15
+        if project_row['درجة الثقة'] > 70:
+            score += 30
+        elif project_row['درجة الثقة'] > 50:
+            score += 15
+        st.progress(score / 100)
+        st.metric("درجة الجودة", f"{score}/100")
+        if score >= 80:
+            st.success("✅ خطة ممتازة، جاهزة للتنفيذ!")
+        elif score >= 60:
+            st.info("📌 خطة جيدة، يمكن تحسينها.")
+        else:
+            st.warning("⚠️ خطة تحتاج إلى مراجعة وتفاصيل إضافية.")
+
+def get_user_projects(user_email: str = "guest@example.com") -> list:
+    """استرجاع المشاريع باستخدام بريد الضيف الموحد."""
+    try:
+        conn = get_db_connection()
+        if not conn:
+            return []
+        cursor = conn.cursor(dictionary=True)
+        # استخدام البريد الثابت
+        cursor.execute("SELECT id FROM users WHERE email = %s", ("guest@example.com",))
+        user = cursor.fetchone()
+        if not user:
+            # إنشاء مستخدم ضيف إذا لم يكن موجوداً
+            cursor.execute("INSERT INTO users (email, name) VALUES ('guest@example.com', 'ضيف')")
+            conn.commit()
+            cursor.execute("SELECT id FROM users WHERE email = 'guest@example.com'")
+            user = cursor.fetchone()
+        user_id = user['id']
+        cursor.execute("""
+            SELECT id, client_name, summary, tech_stack, budget_range, created_at 
+            FROM projects 
+            WHERE user_id = %s
+            ORDER BY created_at DESC
+        """, (user_id,))
+        projects = cursor.fetchall()
+        conn.close()
+        return projects
+    except Exception as e:
+        print(f"⚠️ خطأ في استرجاع المشاريع: {e}")
+        return []
     """استرجاع جميع مشاريع المستخدم من Cloud SQL (محسّن)."""
     try:
         conn = cloudsql_utils.get_db_connection()
