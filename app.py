@@ -262,23 +262,38 @@ st.markdown("""
 # ============================================================
 # دوال عرض وإدارة المشاريع المحفوظة
 # ============================================================
-def get_user_projects(user_id: str = "guest") -> list:
-    """استرجاع جميع مشاريع المستخدم من Cloud SQL."""
+def get_user_projects(user_email: str = "guest@example.com") -> list:
+    """استرجاع جميع مشاريع المستخدم من Cloud SQL (محسّن)."""
     try:
         conn = cloudsql_utils.get_db_connection()
         if not conn:
             return []
         cursor = conn.cursor(dictionary=True)
+        # محاولة البحث باستخدام البريد الإلكتروني المحدد
+        cursor.execute("SELECT id FROM users WHERE email = %s", (user_email,))
+        user = cursor.fetchone()
+        if not user:
+            # إذا لم يتم العثور على المستخدم، جرب استخدام "guest@example.com"
+            cursor.execute("SELECT id FROM users WHERE email = 'guest@example.com'")
+            user = cursor.fetchone()
+            if not user:
+                # إذا لم يوجد مستخدم ضيف، قم بإنشائه
+                cursor.execute("INSERT INTO users (email, name) VALUES ('guest@example.com', 'ضيف')")
+                conn.commit()
+                cursor.execute("SELECT id FROM users WHERE email = 'guest@example.com'")
+                user = cursor.fetchone()
+        user_id = user['id']
         cursor.execute("""
             SELECT id, client_name, summary, tech_stack, budget_range, created_at 
             FROM projects 
-            WHERE user_id = (SELECT id FROM users WHERE email = %s)
+            WHERE user_id = %s
             ORDER BY created_at DESC
         """, (user_id,))
         projects = cursor.fetchall()
         conn.close()
         return projects
     except Exception as e:
+        print(f"⚠️ خطأ في استرجاع المشاريع: {e}")
         return []
 
 
@@ -482,26 +497,49 @@ def render_advanced_analytics(projects):
         else:
             st.warning("⚠️ خطة تحتاج إلى مراجعة وتفاصيل إضافية.")
 
-def get_user_projects(user_id: str = "guest") -> list:
-    """استرجاع جميع مشاريع المستخدم من Cloud SQL."""
+def get_user_projects(user_email: str = "guest@example.com") -> list:
+    """استرجاع جميع مشاريع المستخدم من Cloud SQL (محسّن)."""
     try:
         conn = cloudsql_utils.get_db_connection()
         if not conn:
             return []
         cursor = conn.cursor(dictionary=True)
+        # محاولة البحث باستخدام البريد الإلكتروني المحدد
+        cursor.execute("SELECT id FROM users WHERE email = %s", (user_email,))
+        user = cursor.fetchone()
+        if not user:
+            # إذا لم يتم العثور على المستخدم، جرب استخدام "guest@example.com"
+            cursor.execute("SELECT id FROM users WHERE email = 'guest@example.com'")
+            user = cursor.fetchone()
+            if not user:
+                # إذا لم يوجد مستخدم ضيف، قم بإنشائه
+                cursor.execute("INSERT INTO users (email, name) VALUES ('guest@example.com', 'ضيف')")
+                conn.commit()
+                cursor.execute("SELECT id FROM users WHERE email = 'guest@example.com'")
+                user = cursor.fetchone()
+        user_id = user['id']
         cursor.execute("""
             SELECT id, client_name, summary, tech_stack, budget_range, created_at 
             FROM projects 
-            WHERE user_id = (SELECT id FROM users WHERE email = %s)
+            WHERE user_id = %s
             ORDER BY created_at DESC
         """, (user_id,))
         projects = cursor.fetchall()
         conn.close()
         return projects
     except Exception as e:
+        print(f"⚠️ خطأ في استرجاع المشاريع: {e}")
         return []
 
 def display_project_dashboard():
+    st.subheader("📊 لوحة تحكم مشاريعك")
+    
+    # استخدام بريد إلكتروني ثابت للضيف
+    user_email = "guest@example.com"
+    projects = get_user_projects(user_email)
+    
+    # رسالة تصحيح مؤقتة (يمكن إزالتها لاحقاً)
+    st.caption(f"🔍 عدد المشاريع المسترجعة: {len(projects)}")
     """عرض لوحة تحكم المشاريع المحفوظة."""
     st.subheader("📊 لوحة تحكم مشاريعك")
     
