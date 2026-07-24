@@ -14,3 +14,5 @@ pandas
 plotly
 xlsxwriter
 reportlab
+
+bcrypt

@@ -8,6 +8,8 @@ import uuid
 import requests
 from datetime import datetime
 import streamlit as st
+import bcrypt
+import re
 import google.generativeai as genai
 import config  # يحتوي على المفاتيح (LEMONSQUEEZY_API_KEY, etc.)
 
@@ -1102,7 +1104,163 @@ def display_project_dashboard():
             st.warning(f"⚠️ تعذر إنشاء PDF: {e}")
 
 
+
+
+# ============================================================
+# نظام المصادقة المتقدم (تسجيل الدخول / إنشاء حساب)
+# ============================================================
+def init_auth():
+    """تهيئة متغيرات الجلسة الخاصة بالمصادقة."""
+    if "authenticated" not in st.session_state:
+        st.session_state.authenticated = False
+        st.session_state.user_id = None
+        st.session_state.username = None
+        st.session_state.user_email = None
+
+def hash_password(password: str) -> str:
+    """تشفير كلمة المرور باستخدام bcrypt."""
+    salt = bcrypt.gensalt()
+    return bcrypt.hashpw(password.encode(), salt).decode()
+
+def verify_password(password: str, hashed: str) -> bool:
+    """التحقق من صحة كلمة المرور مقابل التشفير."""
+    return bcrypt.checkpw(password.encode(), hashed.encode())
+
+def create_user(username: str, email: str, password: str) -> tuple:
+    """إنشاء مستخدم جديد في قاعدة البيانات."""
+    conn = get_db_connection()
+    if not conn:
+        return False, "تعذر الاتصال بقاعدة البيانات"
+    cursor = conn.cursor(dictionary=True)
+    # التحقق من تكرار اسم المستخدم أو البريد
+    cursor.execute("SELECT id FROM users WHERE username = %s OR email = %s", (username, email))
+    if cursor.fetchone():
+        conn.close()
+        return False, "اسم المستخدم أو البريد الإلكتروني موجود بالفعل"
+    # تشفير كلمة المرور
+    hashed_pw = hash_password(password)
+    try:
+        cursor.execute("INSERT INTO users (username, email, password_hash) VALUES (%s, %s, %s)", 
+                       (username, email, hashed_pw))
+        conn.commit()
+        conn.close()
+        return True, "تم إنشاء الحساب بنجاح! يمكنك تسجيل الدخول الآن."
+    except Exception as e:
+        conn.close()
+        return False, f"خطأ في إنشاء الحساب: {e}"
+
+def login_user(identifier: str, password: str) -> tuple:
+    """تسجيل الدخول باستخدام اسم المستخدم أو البريد الإلكتروني."""
+    conn = get_db_connection()
+    if not conn:
+        return False, "تعذر الاتصال بقاعدة البيانات"
+    cursor = conn.cursor(dictionary=True)
+    cursor.execute("SELECT id, username, email, password_hash FROM users WHERE username = %s OR email = %s", (identifier, identifier))
+    user = cursor.fetchone()
+    conn.close()
+    if not user:
+        return False, "المستخدم غير موجود"
+    if not verify_password(password, user['password_hash']):
+        return False, "كلمة المرور غير صحيحة"
+    # تحديث الجلسة
+    st.session_state.authenticated = True
+    st.session_state.user_id = user['id']
+    st.session_state.username = user['username']
+    st.session_state.user_email = user['email']
+    return True, "تم تسجيل الدخول بنجاح!"
+
+def logout_user():
+    """تسجيل الخروج ومسح الجلسة."""
+    st.session_state.authenticated = False
+    st.session_state.user_id = None
+    st.session_state.username = None
+    st.session_state.user_email = None
+
+def render_login_page():
+    """عرض صفحة تسجيل الدخول وإنشاء الحساب."""
+    st.set_page_config(page_title="وكيل مهنة - تسجيل الدخول", page_icon="🔐", layout="centered")
+    
+    st.markdown("""
+    <style>
+        .auth-container { max-width: 500px; margin: 0 auto; padding: 2rem; background: white; border-radius: 16px; box-shadow: 0 4px 20px rgba(0,0,0,0.1); }
+        .auth-title { text-align: center; font-size: 2.5rem; font-weight: 800; color: #1E3A8A; }
+        .auth-title span { color: #F5A623; }
+        .auth-subtitle { text-align: center; color: #666; margin-bottom: 2rem; }
+        .stButton button { width: 100%; background-color: #1E3A8A; color: white; font-weight: bold; border-radius: 8px; height: 3rem; }
+        .stButton button:hover { background-color: #1D4ED8; }
+    </style>
+    """, unsafe_allow_html=True)
+    
+    st.markdown('<div class="auth-title">🧠 وكيل مهنة <span>PRO</span></div>', unsafe_allow_html=True)
+    st.markdown('<p class="auth-subtitle">خطط مشاريعك بذكاء واحترافية</p>')
+    
+    tab1, tab2 = st.tabs(["🔑 تسجيل الدخول", "📝 إنشاء حساب جديد"])
+    
+    with tab1:
+        with st.form("login_form"):
+            identifier = st.text_input("👤 اسم المستخدم أو البريد الإلكتروني")
+            password = st.text_input("🔒 كلمة المرور", type="password")
+            submitted = st.form_submit_button("تسجيل الدخول")
+            if submitted:
+                if not identifier or not password:
+                    st.error("⚠️ يرجى ملء جميع الحقول")
+                else:
+                    success, msg = login_user(identifier, password)
+                    if success:
+                        st.success(msg)
+                        st.rerun()
+                    else:
+                        st.error(f"❌ {msg}")
+    
+    with tab2:
+        with st.form("signup_form"):
+            new_username = st.text_input("👤 اسم المستخدم")
+            new_email = st.text_input("✉️ البريد الإلكتروني")
+            new_password = st.text_input("🔒 كلمة المرور", type="password")
+            confirm_password = st.text_input("🔒 تأكيد كلمة المرور", type="password")
+            submitted = st.form_submit_button("إنشاء حساب")
+            if submitted:
+                if not new_username or not new_email or not new_password:
+                    st.error("⚠️ يرجى ملء جميع الحقول")
+                elif new_password != confirm_password:
+                    st.error("⚠️ كلمتا المرور غير متطابقتين")
+                elif len(new_password) < 6:
+                    st.error("⚠️ كلمة المرور يجب أن تكون 6 أحرف على الأقل")
+                elif not re.match(r"[^@]+@[^@]+\.[^@]+", new_email):
+                    st.error("⚠️ بريد إلكتروني غير صالح")
+                else:
+                    success, msg = create_user(new_username, new_email, new_password)
+                    if success:
+                        st.success(msg)
+                    else:
+                        st.error(f"❌ {msg}")
+
+def update_db_schema():
+    """تحديث هيكل جدول users لإضافة username و password_hash (إذا لزم الأمر)."""
+    conn = get_db_connection()
+    if not conn:
+        return
+    cursor = conn.cursor()
+    try:
+        # التحقق من وجود العمود username
+        cursor.execute("SHOW COLUMNS FROM users LIKE 'username'")
+        if not cursor.fetchone():
+            cursor.execute("ALTER TABLE users ADD COLUMN username VARCHAR(100) UNIQUE")
+        cursor.execute("SHOW COLUMNS FROM users LIKE 'password_hash'")
+        if not cursor.fetchone():
+            cursor.execute("ALTER TABLE users ADD COLUMN password_hash VARCHAR(255)")
+        conn.commit()
+        print("✅ تم تحديث هيكل جدول users.")
+    except Exception as e:
+        print(f"⚠️ تحديث الهيكل: {e}")
+    finally:
+        conn.close()
+
 def main():
+    init_auth()
+    if not st.session_state.authenticated:
+        render_login_page()
+        return
     # الهيدر
     st.markdown('<div class="main-header"><h1>🧠 وكيل مهنة <span>PRO</span></h1></div>', unsafe_allow_html=True)
     st.markdown('<p style="text-align: center; margin-top: -20px;">حوّل فكرتك إلى خطة هندسية متكاملة في 3 ثوانٍ</p>', unsafe_allow_html=True)
@@ -1184,6 +1342,12 @@ def main():
             st.divider()
             st.caption("🌟 يثق بنا: 5 عملاء حقيقيون في اليمن")
             st.caption("🏅 أفضل وكيل تخطيط في الشرق الأوسط")
+    # زر تسجيل الخروج
+    st.divider()
+    if st.button("🚪 تسجيل الخروج", use_container_width=True):
+        logout_user()
+        st.rerun()
+
 
         # نموذج إدخال المشروع
         st.markdown("### 📝 أدخل تفاصيل مشروعك")
