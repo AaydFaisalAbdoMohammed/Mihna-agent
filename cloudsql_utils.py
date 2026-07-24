@@ -17,9 +17,9 @@ def get_db_connection():
     try:
         conn = mysql.connector.connect(
             host=os.getenv("DB_HOST", "8.231.102.92"),
-            user=os.getenv("DB_USER", "mihna_app_user"),
+            user=os.getenv("DB_USER", "mihna-app-user"),
             password=os.getenv("DB_PASSWORD", "101519Ayad@"),
-            database=os.getenv("DB_NAME", "mihna_agent"),
+            database=os.getenv("DB_NAME", "mihna-agent"),
             port=os.getenv("DB_PORT", 3306),
             connect_timeout=10,
             connection_timeout=10,
@@ -101,7 +101,6 @@ def get_similar_projects(idea: str, top_k: int = 3) -> list:
     
     try:
         cursor = conn.cursor(dictionary=True)
-        # البحث عن مشاريع مشابهة (بسيط)
         cursor.execute("""
             SELECT id, client_name, summary, tech_stack 
             FROM projects 
