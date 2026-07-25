@@ -8,6 +8,15 @@ import uuid
 import requests
 from datetime import datetime
 import streamlit as st
+
+def init_auth():
+    if "authenticated" not in st.session_state:
+        st.session_state["authenticated"] = False
+    if "user_id" not in st.session_state:
+        st.session_state["user_id"] = None
+    if "username" not in st.session_state:
+        st.session_state["username"] = None
+
 import bcrypt
 import re
 import google.generativeai as genai
