@@ -9,6 +9,32 @@ import requests
 from datetime import datetime
 import streamlit as st
 
+
+def render_login_page():
+    st.markdown("<h2 style='text-align: center;'>🧠 PRO وكيل مهنة</h2>", unsafe_allow_html=True)
+    st.caption("خطط مشاريعك بذكاء واحترافية")
+    
+    tab1, tab2 = st.tabs(["🔐 تسجيل الدخول", "📝 إنشاء حساب جديد"])
+    
+    with tab1:
+        username = st.text_input("اسم المستخدم / البريد الإلكتروني", key="login_user")
+        password = st.text_input("كلمة المرور", type="password", key="login_pass")
+        if st.button("تسجيل الدخول", key="btn_login"):
+            st.session_state["authenticated"] = True
+            st.session_state["username"] = username if username else "Ayad"
+            st.rerun()
+
+    with tab2:
+        reg_user = st.text_input("اسم المستخدم", key="reg_user")
+        reg_email = st.text_input("البريد الإلكتروني", key="reg_email")
+        reg_pass = st.text_input("كلمة المرور", type="password", key="reg_pass")
+        reg_confirm = st.text_input("تأكيد كلمة المرور", type="password", key="reg_confirm")
+        
+        if st.button("إنشاء حساب", key="btn_register"):
+            st.session_state["authenticated"] = True
+            st.session_state["username"] = reg_user if reg_user else "Ayad"
+            st.rerun()
+
 def init_auth():
     if "authenticated" not in st.session_state:
         st.session_state["authenticated"] = False
