@@ -7,15 +7,13 @@ import mysql.connector
 from mysql.connector import Error
 import streamlit as st
 
-# بيانات الاتصال الصحيحة (كما في الصورة: mihna_app_user, mihna_agent)
 DB_HOST = os.getenv("DB_HOST", "8.231.102.92")
-DB_USER = os.getenv("DB_USER", "mihna_app_user")
+DB_USER = os.getenv("DB_USER", "mihna.app.user")
 DB_PASSWORD = os.getenv("DB_PASSWORD", "101519Ayad@")
 DB_NAME = os.getenv("DB_NAME", "mihna_agent")
 DB_PORT = int(os.getenv("DB_PORT", 3306))
 
 def get_db_connection():
-    """إنشاء اتصال بقاعدة البيانات مع مهلة زمنية."""
     try:
         conn = mysql.connector.connect(
             host=DB_HOST,
@@ -24,14 +22,12 @@ def get_db_connection():
             database=DB_NAME,
             port=DB_PORT,
             connect_timeout=10,
-            connection_timeout=10,
             use_pure=True
         )
         if conn.is_connected():
             return conn
-        else:
-            st.error("⚠️ الاتصال بقاعدة البيانات غير نشط")
-            return None
+        st.error("⚠️ الاتصال بقاعدة البيانات غير نشط")
+        return None
     except Error as e:
         st.error(f"❌ فشل الاتصال بقاعدة البيانات: {e}")
         return None
