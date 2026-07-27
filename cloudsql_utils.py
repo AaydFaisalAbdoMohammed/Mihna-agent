@@ -7,21 +7,19 @@ import mysql.connector
 from mysql.connector import Error
 import streamlit as st
 
-DB_HOST = os.getenv("DB_HOST", "8.231.102.92")
+CLOUD_SQL_CONNECTION_NAME = os.getenv("CLOUD_SQL_CONNECTION_NAME", "project-d699d925-921c-4e54-8c4:asia-south1:mihna-agent")
 DB_USER = os.getenv("DB_USER", "mihna.app.user")
 DB_PASSWORD = os.getenv("DB_PASSWORD", "101519Ayad@")
 DB_NAME = os.getenv("DB_NAME", "mihna_agent")
-DB_PORT = int(os.getenv("DB_PORT", 3306))
 
 def get_db_connection():
     try:
         conn = mysql.connector.connect(
-            host=DB_HOST,
             user=DB_USER,
             password=DB_PASSWORD,
             database=DB_NAME,
-            port=DB_PORT,
-            connect_timeout=30,
+            unix_socket=f"/cloudsql/{CLOUD_SQL_CONNECTION_NAME}",
+            connect_timeout=10,
             use_pure=True
         )
         if conn.is_connected():
@@ -29,7 +27,7 @@ def get_db_connection():
         st.error("⚠️ الاتصال بقاعدة البيانات غير نشط")
         return None
     except Error as e:
-        st.error(f"❌ فشل الاتصال بقاعدة البيانات: {e}")
+        st.error(f"❌ فشل الاتصال بقاعدة البيانات (Socket): {e}")
         return None
     except Exception as e:
         st.error(f"❌ خطأ غير متوقع: {e}")
