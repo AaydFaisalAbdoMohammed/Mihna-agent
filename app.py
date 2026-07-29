@@ -1044,3 +1044,18 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+def get_db_connection():
+    try:
+        import os, pymysql
+        connection = pymysql.connect(
+            unix_socket=f"/cloudsql/{os.environ.get('CLOUD_SQL_CONNECTION_NAME')}",
+            user=os.environ.get('DB_USER'),
+            password=os.environ.get('DB_PASSWORD'),
+            database=os.environ.get('DB_NAME'),
+            cursorclass=pymysql.cursors.DictCursor
+        )
+        return connection
+    except Exception as e:
+        print(f"Database connection error: {e}")
+        return None
