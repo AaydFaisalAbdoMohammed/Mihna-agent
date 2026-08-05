@@ -3,3 +3,15 @@ pandas
 requests
 plotly
 reportlab
+
+streamlit>=1.37.0
+starlette<0.36.0
+google-generativeai
+streamlit
+pandas
+numpy
+plotly
+google-generativeai
+openpyxl
+pymysql
+cryptography
