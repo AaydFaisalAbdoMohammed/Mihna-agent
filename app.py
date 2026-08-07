@@ -467,37 +467,39 @@ def build_detailed_plan_text(plan: dict) -> str:
         hourly_t_cost = t_cost / max(1, t_hours)
         
         tasks_breakdown_str += f"""
-#### Phase {idx}: {t.get('task', 'مهمة')}
-* ⏱️ **المدة الزمنية:** {t_days} أيام عمل ({t_hours} ساعة هندسية)
-* 💰 **التكلفة المخصصة:** ${t_cost:,.2f} ({cost_percentage:.1f}% من إجمالي الميزانية)
-* 📊 **المعدل اليومي للإنفاق:** ${daily_t_cost:,.2f} / يوم
-* ⏱️ **معدل الساعة للمرحلة:** ${hourly_t_cost:,.2f} / ساعة
-* 📌 **الحالة التنفيذية:** {t.get('status', 'مخطط')}
+#### 🔹 المرحلة {idx}: {t.get('task', 'مهمة')}
+* ⏱️ **المدة الزمنية:** `{t_days}` أيام عمل (`{t_hours}` ساعة هندسية مكثفة)
+* 💰 **التكلفة المخصصة:** `${t_cost:,.2f}` (`{cost_percentage:.1f}%` من إجمالي محفظة المشروع)
+* 📊 **المعدل المالي اليومي للإنفاق:** `${daily_t_cost:,.2f}` / يوم
+* ⏱️ **تكلفة الساعة التشغيلية:** `${hourly_t_cost:,.2f}` / ساعة
+* 📌 **الحالة التنفيذية:** `{t.get('status', 'مخطط')}`
 """
-    return f"""📌 **المستند التنفيذي والتفصيلي لمشروع ({p_name})**
-*تاريخ التوليد التلقائي: {plan.get('generated_at', datetime.datetime.now().strftime('%Y-%m-%d'))}*
+    return f"""### 💎 التقرير التنفيذي الشامل والمحاسبي لمشروع ({p_name})
+*تاريخ التوليد والاعتماد الرقمي: `{plan.get('generated_at', datetime.datetime.now().strftime('%Y-%m-%d %H:%M'))}`*
 
 ---
 
-### 1. نظرة عامة والأهداف التنفيذية (Executive Summary & KPIs)
-يهدف مشروع **{p_name}** إلى تقديم حل متكامل وعالي الأداء في قطاع **{domain}**، معتمداً على التقنيات: **({tech})**.
-* **الميزانية الكلية (Total Budget):** `${budget:,.2f}`
-* **المدى الزمني المستهدف (Timeline):** `{days}` يوماً تقويمياً.
-* **مستوى تحمل المخاطر (Risk Profile):** `{risk}`.
+#### 1. الملخص الاستراتيجي والمؤشرات الرئيسية (Executive KPIs)
+* **اسم المشروع:** `{p_name}`
+* **القطاع التقني:** `{domain}`
+* **التقنيات المعتمدة:** `{tech}`
+* **الميزانية الكلية المرصودة:** `${budget:,.2f}`
+* **الجدول الزمني المستهدف:** `{days}` يوماً تقويمياً
+* **مستوى التصنيف والمخاطر:** `{risk}`
 
 ---
 
-### 2. الحسابات المالية والهندسية التفصيلية (Precise Cost & Time Allocation)
-* ⏳ **إجمالي الساعات الهندسية (Total Man-Hours):** `{total_man_hours:,}` ساعة.
-* 💵 **معدل التكلفة اليومي (Daily Rate):** `${daily_rate:,.2f}` / يوم.
-* ⏱️ **معدل تكلفة الساعة الهندسية (Hourly Rate):** `${hourly_rate:,.2f}` / ساعة.
-* 🛡️ **احتياطي الطوارئ والمخاطر ({contingency_rate*100:.0f}% Risk Reserve):** `${contingency_amount:,.2f}`.
-* ☁️ **تقدير تكاليف البنية التحتية (Infra & Cloud OpEx):** `${cloud_infra_cost:,.2f}`.
-* 🛠️ **صافي ميزانية التطوير الفعلي (Effective Dev Budget):** `${dev_labor_cost:,.2f}`.
+#### 2. التحليل المالي والهندسي المعماري المتقدم (Advanced Financial & Man-Hour Metrics)
+* ⏳ **إجمالي الساعات الهندسية (Total Man-Hours):** `{total_man_hours:,}` ساعة عمل برمجية.
+* 💵 **معدل الإنفاق اليومي الثابت (Daily Burn Rate):** `${daily_rate:,.2f}` لكل يوم عمل.
+* ⏱️ **تكلفة ساعة الموارد البشرية والتقنية (Hourly Rate):** `${hourly_rate:,.2f}` لكل ساعة تشغيلية.
+* 🛡️ **مخصص الطوارئ واحتياطي المخاطر ({contingency_rate*100:.0f}% Risk Reserve):** `${contingency_amount:,.2f}`.
+* ☁️ **تكاليف التشغيل السحابي والبنية التحتية (Cloud OpEx - 8%):** `${cloud_infra_cost:,.2f}`.
+* 🛠️ **صافي ميزانية التطوير والكوادر الفعلية (Effective Dev CapEx):** `${dev_labor_cost:,.2f}`.
 
 ---
 
-### 3. التفصيل الرحلي للمهام والمعالم الرئيسية (Milestones & Work Breakdown Structure)
+#### 3. الهيكل التفصيلي لتوزيع المهام والمعالم الكبرى (Work Breakdown Structure & Milestones)
 {tasks_breakdown_str}
 """
 
@@ -739,13 +741,19 @@ def main():
                         DatabaseEngine.update_credits(user['email'], max(0, user['credits'] - 1))
                     
                     st.session_state.current_plan = plan
-                    st.balloons()  # إطلاق البالونات الاحتفالية عند التوليد
+                    st.balloons()  # إطلاق البالونات من الأسفل للأعلى بنجاح
                     st.success("✅ تم توليد الخطة وحفظها بقاعدة البيانات المركزية بنجاح!")
                     st.rerun()
 
         if st.session_state.current_plan:
             plan = st.session_state.current_plan
             st.write("---")
+            
+            # --- التفصيل النصي الشامل والإحترافي للخطة فوق زر الواتساب ---
+            st.markdown("---")
+            st.markdown(build_detailed_plan_text(plan))
+            st.markdown("---")
+
             col_sig1, col_sig2 = st.columns([3, 1])
             with col_sig1:
                 st.info(f"🔑 التوقيع الرقمي (HMAC-SHA512):\n`{plan.get('signature', '')}`")
@@ -772,7 +780,7 @@ def main():
             safe_sig = plan.get('signature', 'N/A')[:15]
             msg_body = f"🚀 مشروع: {safe_pname}\n💰 الميزانية: ${safe_budget}\n🔑 التوقيع: {safe_sig}..."
             wa_url = NotificationEngine.create_whatsapp_link(st.session_state.notify_whatsapp, msg_body)
-            st.markdown(f'<br><a href="{wa_url}" target="_blank" style="display:block; text-align:center; background-color:#25D366; color:white; padding:10px; border-radius:8px; font-weight:bold; text-decoration:none;">📱 إرسال عبر WhatsApp</a>', unsafe_allow_html=True)
+            st.markdown(f'<br><a href="{wa_url}" target="_blank" style="display:block; text-align:center; background-color:#25D366; color:white; padding:12px; border-radius:10px; font-weight:bold; text-decoration:none; font-size:15px; box-shadow: 0 4px 12px rgba(37,211,102,0.3);">📱 إرسال تفاصيل الخطة عبر WhatsApp</a>', unsafe_allow_html=True)
 
     # ------------------ TAB 2: ANALYTICS ------------------
     with t2:
