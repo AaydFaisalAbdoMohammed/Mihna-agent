@@ -280,7 +280,6 @@ class PhoenixAI:
             match = re.search(r"\{.*\}", response.text, re.DOTALL)
             data = json.loads(match.group() if match else response.text)
             
-            # 🟢 [تأمين حمايائي]: ضمان وجود كافة المفاتيح الأساسية وحقن قيم req الافتراضية
             fallback_keys = ['project_name', 'domain', 'budget', 'target_days', 'risk', 'tech_stack', 'scope']
             for key in fallback_keys:
                 if key not in data or not data[key]:
@@ -575,6 +574,7 @@ def render_dynamic_css():
         .email-notification-box {{ background-color: #022C22; border: 1px solid #10B981; border-radius: 12px; padding: 16px; color: #ECFDF5; margin: 10px 0; font-family: monospace; }}
     </style>
     """, unsafe_allow_html=True)
+    return text_color
 
 
 # =====================================================================
@@ -626,13 +626,12 @@ def render_auth_page():
 
 def main():
     init_session()
-    render_dynamic_css()
+    text_color = render_dynamic_css()
 
     if not st.session_state.authenticated:
         render_auth_page()
         st.stop()
 
-    # تحديث الرصيد الحالي من قاعدة البيانات في كل إعادة تحميل
     user_fresh = DatabaseEngine.get_user(st.session_state.current_user['email'])
     if user_fresh: st.session_state.current_user = user_fresh
     user = st.session_state.current_user
@@ -740,6 +739,7 @@ def main():
                         DatabaseEngine.update_credits(user['email'], max(0, user['credits'] - 1))
                     
                     st.session_state.current_plan = plan
+                    st.balloons()  # إطلاق البالونات الاحتفالية عند التوليد
                     st.success("✅ تم توليد الخطة وحفظها بقاعدة البيانات المركزية بنجاح!")
                     st.rerun()
 
@@ -767,7 +767,6 @@ def main():
                 pdf_bytes = generate_pdf_plan(plan, plan.get('signature', ''), detailed_txt)
                 st.download_button("📄 تحميل الخطة (PDF)", data=pdf_bytes, file_name=f"{plan.get('project_name', 'Project')}_Plan.pdf", mime="application/pdf", use_container_width=True)
 
-            # 🟢 [تعديل آمن لحل KeyError]: استخدام .get() الآمن للوصول للمتغيرات
             safe_pname = plan.get('project_name', 'مشروع جديد')
             safe_budget = plan.get('budget', 0)
             safe_sig = plan.get('signature', 'N/A')[:15]
@@ -784,7 +783,6 @@ def main():
             df = pd.DataFrame(plan.get('tasks', []))
             st.markdown("## 📊 لوحة القيادة الهندسية (5D Radar Risk Matrix)")
             
-            # 🟢 [تعديل آمن لحل KeyError]: التكلفة والإنفاق واللوحة
             p_budget = float(plan.get('budget', 0))
             p_days = int(plan.get('target_days', 1))
             p_name_safe = plan.get('project_name', 'المشروع')
