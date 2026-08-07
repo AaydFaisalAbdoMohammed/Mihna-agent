@@ -211,9 +211,9 @@ class DatabaseEngine:
         cursor.execute(
             "INSERT INTO projects (user_id, client_name, summary, budget_range, tech_stack, payload, signature) VALUES (?, ?, ?, ?, ?, ?, ?)",
             (
-                user_email, plan_json.get('project_name'), plan_json.get('executive_summary', ''),
-                str(plan_json.get('budget')), json.dumps(plan_json.get('tech_stack', [])),
-                json.dumps(plan_json, ensure_ascii=False), plan_json.get('signature')
+                user_email, plan_json.get('project_name', 'مشروع غير معنون'), plan_json.get('executive_summary', ''),
+                str(plan_json.get('budget', 0)), json.dumps(plan_json.get('tech_stack', [])),
+                json.dumps(plan_json, ensure_ascii=False), plan_json.get('signature', '')
             )
         )
         conn.commit()
@@ -275,20 +275,31 @@ class PhoenixAI:
         try:
             genai.configure(api_key=api_key)
             model = genai.GenerativeModel("gemini-2.5-flash")
-            prompt = f"Create JSON architecture plan for project {req['project_name']} with tasks, cost, days and status."
+            prompt = f"Create a strictly formatted JSON architecture plan for project '{req.get('project_name')}' with tasks array (id, task, days, cost, status), cost, days and status. Return ONLY valid JSON."
             response = model.generate_content(prompt)
             match = re.search(r"\{.*\}", response.text, re.DOTALL)
             data = json.loads(match.group() if match else response.text)
+            
+            # 🟢 [تأمين حمايائي]: ضمان وجود كافة المفاتيح الأساسية وحقن قيم req الافتراضية
+            fallback_keys = ['project_name', 'domain', 'budget', 'target_days', 'risk', 'tech_stack', 'scope']
+            for key in fallback_keys:
+                if key not in data or not data[key]:
+                    data[key] = req.get(key)
+
+            if isinstance(data.get('tech_stack'), str):
+                data['tech_stack'] = [t.strip() for t in data['tech_stack'].split(",")]
+
             data["generated_at"] = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
             data["signature"] = VaultSecurity.sign_payload(data)
             return data
-        except Exception:
+        except Exception as e:
+            logging.error(f"AI Generation/Parsing Exception: {e}")
             return PhoenixAI._mock_fallback(req)
 
     @staticmethod
     def _mock_fallback(req: dict) -> dict:
-        b = float(req.get('budget', 3000))
-        d = int(req.get('target_days', 20))
+        b = float(req.get('budget', 3500))
+        d = int(req.get('target_days', 30))
         tasks = [
             {"id": 1, "task": "تحليل المتطلبات وتصميم المخططات Architecture", "days": max(1, int(d*0.15)), "cost": int(b*0.15), "status": "مخطط"},
             {"id": 2, "task": "بناء قواعد البيانات وتأمين API Backend", "days": max(1, int(d*0.35)), "cost": int(b*0.35), "status": "مخطط"},
@@ -296,10 +307,10 @@ class PhoenixAI:
             {"id": 4, "task": "الاختبارات الشاملة والتكامل QA Deployment", "days": max(1, int(d*0.20)), "cost": int(b*0.20), "status": "مخطط"}
         ]
         data = {
-            "project_name": req.get('project_name'), 
-            "domain": req.get('domain'),
+            "project_name": req.get('project_name', 'مشروع غير معنون'), 
+            "domain": req.get('domain', 'تقنية المعلومات'),
             "executive_summary": f"خطة هندسية لمشروع ({req.get('project_name')}) بتصميم فائق الجودة والأمان.",
-            "tech_stack": [t.strip() for t in str(req.get('tech_stack', '')).split(",")],
+            "tech_stack": [t.strip() for t in str(req.get('tech_stack', '')).split(",") if t.strip()],
             "budget": b, 
             "target_days": d, 
             "risk": req.get('risk', 'متوسط'),
@@ -431,6 +442,8 @@ def build_detailed_plan_text(plan: dict) -> str:
     budget = float(plan.get('budget', 0))
     days = int(plan.get('target_days', 0))
     tech = plan.get('tech_stack', 'Flutter, Node.js, PostgreSQL')
+    if isinstance(tech, list):
+        tech = ", ".join(tech)
     risk = plan.get('risk', 'متوسط')
     tasks = plan.get('tasks', [])
     
@@ -735,9 +748,9 @@ def main():
             st.write("---")
             col_sig1, col_sig2 = st.columns([3, 1])
             with col_sig1:
-                st.info(f"🔑 التوقيع الرقمي (HMAC-SHA512):\n`{plan['signature']}`")
+                st.info(f"🔑 التوقيع الرقمي (HMAC-SHA512):\n`{plan.get('signature', '')}`")
             with col_sig2:
-                if VaultSecurity.verify_signature(plan, plan['signature']):
+                if VaultSecurity.verify_signature(plan, plan.get('signature', '')):
                     st.markdown("<br><span class='badge-green'>✔ توقيع موثوق وسليم</span>", unsafe_allow_html=True)
                 else:
                     st.markdown("<br><span class='badge-purple'>❌ تم التلاعب بالبيانات</span>", unsafe_allow_html=True)
@@ -749,12 +762,16 @@ def main():
             detailed_txt = build_detailed_plan_text(plan)
             with col_dl1:
                 ex_bytes = generate_excel_download(df_tasks)
-                st.download_button("📥 تحميل مهام (Excel/CSV)", data=ex_bytes, file_name=f"{plan['project_name']}_Tasks.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", use_container_width=True)
+                st.download_button("📥 تحميل مهام (Excel/CSV)", data=ex_bytes, file_name=f"{plan.get('project_name', 'Project')}_Tasks.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", use_container_width=True)
             with col_dl2:
-                pdf_bytes = generate_pdf_plan(plan, plan['signature'], detailed_txt)
-                st.download_button("📄 تحميل الخطة (PDF)", data=pdf_bytes, file_name=f"{plan['project_name']}_Plan.pdf", mime="application/pdf", use_container_width=True)
+                pdf_bytes = generate_pdf_plan(plan, plan.get('signature', ''), detailed_txt)
+                st.download_button("📄 تحميل الخطة (PDF)", data=pdf_bytes, file_name=f"{plan.get('project_name', 'Project')}_Plan.pdf", mime="application/pdf", use_container_width=True)
 
-            msg_body = f"🚀 مشروع: {plan['project_name']}\n💰 الميزانية: ${plan['budget']}\n🔑 التوقيع: {plan['signature'][:15]}..."
+            # 🟢 [تعديل آمن لحل KeyError]: استخدام .get() الآمن للوصول للمتغيرات
+            safe_pname = plan.get('project_name', 'مشروع جديد')
+            safe_budget = plan.get('budget', 0)
+            safe_sig = plan.get('signature', 'N/A')[:15]
+            msg_body = f"🚀 مشروع: {safe_pname}\n💰 الميزانية: ${safe_budget}\n🔑 التوقيع: {safe_sig}..."
             wa_url = NotificationEngine.create_whatsapp_link(st.session_state.notify_whatsapp, msg_body)
             st.markdown(f'<br><a href="{wa_url}" target="_blank" style="display:block; text-align:center; background-color:#25D366; color:white; padding:10px; border-radius:8px; font-weight:bold; text-decoration:none;">📱 إرسال عبر WhatsApp</a>', unsafe_allow_html=True)
 
@@ -767,20 +784,25 @@ def main():
             df = pd.DataFrame(plan.get('tasks', []))
             st.markdown("## 📊 لوحة القيادة الهندسية (5D Radar Risk Matrix)")
             
-            daily_rate = int(plan['budget'] / max(1, plan['target_days']))
-            feasibility_score = min(98, max(65, int(100 - (plan['target_days'] / max(1, plan['budget'] / 100)) * 5)))
+            # 🟢 [تعديل آمن لحل KeyError]: التكلفة والإنفاق واللوحة
+            p_budget = float(plan.get('budget', 0))
+            p_days = int(plan.get('target_days', 1))
+            p_name_safe = plan.get('project_name', 'المشروع')
+            
+            daily_rate = int(p_budget / max(1, p_days))
+            feasibility_score = min(98, max(65, int(100 - (p_days / max(1, p_budget / 100)) * 5)))
             
             m1, m2, m3, m4 = st.columns(4)
-            m1.metric("💰 الميزانية المعتمدة", f"${plan['budget']:,}")
-            m2.metric("⏱️ المدى الزمني", f"{plan['target_days']} يوم")
+            m1.metric("💰 الميزانية المعتمدة", f"${p_budget:,.0f}")
+            m2.metric("⏱️ المدى الزمني", f"{p_days} يوم")
             m3.metric("📈 التكلفة اليومية", f"${daily_rate:,}/يوم")
             m4.metric("🛡️ مؤشر السلامة", f"{feasibility_score}%", delta="ممتاز" if feasibility_score > 80 else "مقبول")
             
             c_r1, c_r2 = st.columns(2)
             with c_r1:
-                labels = [plan['project_name']] + list(df['task'] if 'task' in df else [])
-                parents = [""] + [plan['project_name']] * len(df)
-                values = [plan['budget']] + list(df['cost'] if 'cost' in df else [])
+                labels = [p_name_safe] + list(df['task'] if 'task' in df else [])
+                parents = [""] + [p_name_safe] * len(df)
+                values = [p_budget] + list(df['cost'] if 'cost' in df else [])
                 fig_sun = go.Figure(go.Sunburst(labels=labels, parents=parents, values=values, branchvalues="total", hovertemplate='<b>%{label}</b><br>المبلغ: $%{value:,}<br>النسبة: %{percentParent:.1%}', marker=dict(colorscale='Blues')))
                 fig_sun.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', font=dict(color=text_color), height=350)
                 st.plotly_chart(fig_sun, use_container_width=True)
@@ -806,7 +828,7 @@ def main():
                 x_labels = list(df['task'] if 'task' in df else []) + ["الإجمالي"]
                 y_meas = ["relative"] * len(df) + ["total"]
                 y_vals = list(df['cost'] if 'cost' in df else []) + [0]
-                fig_wat = go.Figure(go.Waterfall(name="التكلفة", orientation="v", measure=y_meas, x=x_labels, textposition="outside", text=[f"${c:,}" if c>0 else f"${plan['budget']:,}" for c in y_vals], y=y_vals, connector={"line":{"color":"#64748B"}}))
+                fig_wat = go.Figure(go.Waterfall(name="التكلفة", orientation="v", measure=y_meas, x=x_labels, textposition="outside", text=[f"${c:,}" if c>0 else f"${p_budget:,.0f}" for c in y_vals], y=y_vals, connector={"line":{"color":"#64748B"}}))
                 fig_wat.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', font=dict(color=text_color), height=340)
                 st.plotly_chart(fig_wat, use_container_width=True)
 
