@@ -551,7 +551,7 @@ def build_detailed_plan_text(plan: dict, lang: str = 'ar') -> str:
 * ⏳ **إجمالي الساعات الهندسية (Total Man-Hours):** `{total_man_hours:,}` ساعة عمل برمجية.
 * 💵 **معدل الإنفاق اليومي الثابت (Daily Burn Rate):** `${daily_rate:,.2f}` لكل يوم عمل.
 * ⏱️ **تكلفة ساعة الموارد البشرية والتقنية (Hourly Rate):** `${hourly_rate:,.2f}` لكل ساعة تشغيلية.
-* 🛡️ **مخصص الطوارئ واحتياطي المخاطر ({contingency_rate*100:.0f}% Risk Reserve):** `${contingency_amount:,.2f}`.
+* 🛡️ **مخصص الطوارئ وااحتياطي المخاطر ({contingency_rate*100:.0f}% Risk Reserve):** `${contingency_amount:,.2f}`.
 * ☁️ **تكاليف التشغيل السحابي والبنية التحتية (Cloud OpEx - 8%):** `${cloud_infra_cost:,.2f}`.
 * 🛠️ **صافي ميزانية التطوير والكوادر الفعلية (Effective Dev CapEx):** `${dev_labor_cost:,.2f}`.
 
@@ -680,13 +680,41 @@ def render_dynamic_css():
     text_color = "#FFFFFF" if st.session_state.theme == 'dark' else "#0F172A"
     border_color = "#334155" if st.session_state.theme == 'dark' else "#E2E8F0"
 
+    # إصلاح ذكي وجذري لمنع انهيار العناصر وتجمع الخيارات في الخط الأوسط عند وضع RTL
     st.markdown(f"""
     <style>
-        html, body, [data-testid="stAppViewContainer"] {{ direction: {direction}; text-align: {align_text}; }}
+        /* تطبيق الاتجاه على العناوين الفقرات والحاويات الرئيسية فقط لتجنب كسر عناصر Streamlit المطلقة */
+        .main .block-container {{
+            direction: {direction};
+            text-align: {align_text};
+        }}
+        .stMarkdown, .stForm, div[data-testid="stForm"], .stTable, .stDataFrame {{
+            direction: {direction};
+            text-align: {align_text};
+        }}
+        
+        /* عزل السايدبار وضبط اتجاه محتواه بأمان */
+        section[data-testid="stSidebar"] > div {{
+            direction: {direction};
+            text-align: {align_text};
+        }}
+
         .stApp {{ background-color: {bg_color}; color: {text_color}; }}
-        .badge-green {{ background-color: #10B981; color: white; padding: 6px 14px; border-radius: 12px; font-weight: bold; font-size: 13px; display: inline-block; }}
-        .badge-purple {{ background-color: #8B5CF6; color: white; padding: 6px 14px; border-radius: 12px; font-weight: bold; font-size: 13px; display: inline-block; }}
-        .badge-gold {{ background-color: #F59E0B; color: white; padding: 6px 14px; border-radius: 12px; font-weight: bold; font-size: 13px; display: inline-block; }}
+        
+        /* الشارات والشعارات */
+        .badge-green {{ background-color: #10B981; color: white; padding: 6px 14px; border-radius: 12px; font-weight: bold; font-size: 13px; display: inline-block; text-align: center; margin: 4px; }}
+        .badge-purple {{ background-color: #8B5CF6; color: white; padding: 6px 14px; border-radius: 12px; font-weight: bold; font-size: 13px; display: inline-block; text-align: center; margin: 4px; }}
+        .badge-gold {{ background-color: #F59E0B; color: white; padding: 6px 14px; border-radius: 12px; font-weight: bold; font-size: 13px; display: inline-block; text-align: center; margin: 4px; }}
+        
+        .header-badge-container {{
+            display: flex;
+            align-items: center;
+            justify-content: flex-start;
+            gap: 10px;
+            margin-bottom: 12px;
+            flex-wrap: wrap;
+        }}
+
         .checkout-btn {{ display: block; width: 100%; text-align: center; background: linear-gradient(135deg, #2563EB, #1D4ED8); color: white !important; padding: 12px 16px; border-radius: 10px; font-weight: bold; text-decoration: none; border: none; font-size: 14px; box-shadow: 0 4px 12px rgba(37,99,235,0.3); }}
         .checkout-btn-yearly {{ display: block; width: 100%; text-align: center; background: linear-gradient(135deg, #7C3AED, #9333EA); color: white !important; padding: 12px 16px; border-radius: 10px; font-weight: bold; text-decoration: none; border: none; font-size: 14px; box-shadow: 0 4px 12px rgba(124,58,237,0.3); }}
         .pricing-card {{ background-color: {card_bg}; border: 2px solid {border_color}; border-radius: 16px; padding: 24px; text-align: center; transition: all 0.3s ease; }}
@@ -764,8 +792,8 @@ def main():
 
     # --- SIDEBAR ---
     with st.sidebar:
-        st.title("🛡️ PHOENIX AGENT")
-        st.markdown("<span class='badge-purple'>Enterprise Edition 2026</span>", unsafe_allow_html=True)
+        st.markdown("<h2 style='margin-bottom:2px;'>🛡️ PHOENIX AGENT</h2>", unsafe_allow_html=True)
+        st.markdown("<div class='header-badge-container'><span class='badge-purple'>Enterprise Edition 2026</span></div>", unsafe_allow_html=True)
         st.write("---")
         
         st.radio(txt['lang_select'], ["العربية (Arabic)", "English"], index=0 if st.session_state.lang == 'ar' else 1, key='lang_radio', on_change=update_language)
@@ -803,7 +831,7 @@ def main():
 
     # --- MAIN CONTENT ---
     st.markdown(f"<h1 style='text-align:center;'>{APP_TITLE}</h1>", unsafe_allow_html=True)
-    st.caption(txt['app_subtitle'])
+    st.caption(f"<div style='text-align:center;'>{txt['app_subtitle']}</div>", unsafe_allow_html=True)
 
     # AI Banner Check
     if user['credits'] <= 0 and not user.get('is_subscribed'):
