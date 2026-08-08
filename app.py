@@ -3,9 +3,10 @@
 
 """
 ===============================================================================
-© 2026 PHOENIX & MIHNA ULTIMATE FUSION v11.0 - أقوى منصة لهندسة المشاريع
+© 2026 PHOENIX & MIHNA ULTIMATE FUSION v11.1 - يعتمد على MySQL Cloud SQL
+مع طبقة احتياطية SQLite لضمان استمرارية العمل.
 يجمع هذا الإصدار بين:
-1. Hybrid Database (Cloud SQL PostgreSQL + SQLite Fallback)
+1. Hybrid Database (MySQL Cloud SQL + SQLite Fallback)
 2. Gemini 2.5 Flash AI مع RAG
 3. التوقيع الرقمي HMAC-SHA512
 4. محرر المهام التفاعلي (HITL)
@@ -46,12 +47,11 @@ except ImportError:
     BCRYPT_AVAILABLE = False
 
 try:
-    import psycopg2
-    from sqlalchemy import create_engine, text, MetaData, Table, Column, String, Integer, DateTime, Text, Boolean
-    from sqlalchemy.pool import NullPool
-    SQLALCHEMY_AVAILABLE = True
+    import mysql.connector
+    from mysql.connector import Error
+    MYSQL_AVAILABLE = True
 except ImportError:
-    SQLALCHEMY_AVAILABLE = False
+    MYSQL_AVAILABLE = False
 
 try:
     from reportlab.lib.pagesizes import letter, A4
@@ -84,13 +84,11 @@ PAYMENT_LINK_YEARLY = os.getenv("PAYMENT_LINK_YEARLY", "https://nexus-corestore.
 SECRET_HMAC_KEY = os.getenv("HMAC_SECRET_KEY", "PHOENIX_ULTIMATE_SECURE_KEY_2026")
 DB_FILE = "phoenix_ultimate.db"
 
-# Cloud SQL Configuration (PostgreSQL)
-CLOUD_SQL_CONN = os.getenv("CLOUD_SQL_CONNECTION_NAME")
-DB_USER = os.getenv("DB_USER", "postgres")
-DB_PASS = os.getenv("DB_PASSWORD")
-DB_NAME = os.getenv("DB_NAME", "postgres")
-DB_HOST = os.getenv("DB_HOST", "127.0.0.1")
-DB_PORT = os.getenv("DB_PORT", "5432")
+# Cloud SQL Configuration (MySQL)
+CLOUD_SQL_CONNECTION_NAME = os.getenv("CLOUD_SQL_CONNECTION_NAME", "project-d699d925-921c-4e54-8c4:asia-south1:mihna-agent")
+DB_USER = os.getenv("DB_USER", "mihna_app_user")
+DB_PASSWORD = os.getenv("DB_PASSWORD", "101519Ayad@")
+DB_NAME = os.getenv("DB_NAME", "mihna_agent")
 
 st.set_page_config(
     page_title="وكيل مهنة PRO | Ultimate Fusion",
@@ -100,219 +98,305 @@ st.set_page_config(
 )
 
 # =====================================================================
-# 2. HYBRID DATABASE ENGINE (SQLAlchemy + SQLite Fallback)
+# 2. HYBRID DATABASE ENGINE (MySQL Cloud SQL + SQLite Fallback)
 # =====================================================================
 @st.cache_resource(ttl=600)
-def init_hybrid_engine():
-    """محاولة الاتصال بـ Cloud SQL أولاً، وفي حال الفشل استخدام SQLite المحلي"""
-    if not SQLALCHEMY_AVAILABLE:
+def get_db_connection():
+    """إنشاء اتصال بقاعدة بيانات MySQL عبر Cloud SQL Unix Socket"""
+    if not MYSQL_AVAILABLE:
+        return None
+    try:
+        conn = mysql.connector.connect(
+            user=DB_USER,
+            password=DB_PASSWORD,
+            database=DB_NAME,
+            unix_socket=f"/cloudsql/{CLOUD_SQL_CONNECTION_NAME}",
+            connect_timeout=10,
+            use_pure=True,
+            auth_plugin='mysql_native_password',
+            pool_name="phoenix_pool",
+            pool_size=5,
+            pool_reset_session=True
+        )
+        if conn.is_connected():
+            logging.info("✅ Connected to Cloud SQL (MySQL)")
+            return conn
+        else:
+            logging.warning("⚠️ MySQL connection failed, falling back to SQLite.")
+            return None
+    except Error as e:
+        logging.error(f"❌ MySQL connection error: {e}")
+        return None
+    except Exception as e:
+        logging.error(f"❌ Unexpected error: {e}")
         return None
 
-    # محاولة إنشاء الاتصال السحابي
-    try:
-        if CLOUD_SQL_CONN and DB_USER and DB_PASS and DB_NAME:
-            encoded_pass = quote_plus(DB_PASS)
-            if os.path.exists(f"/cloudsql/{CLOUD_SQL_CONN}"):
-                db_url = f"postgresql+psycopg2://{DB_USER}:{encoded_pass}@/{DB_NAME}?host=/cloudsql/{CLOUD_SQL_CONN}"
-            else:
-                db_url = f"postgresql+psycopg2://{DB_USER}:{encoded_pass}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
-            
-            engine = create_engine(
-                db_url,
-                pool_pre_ping=True,
-                pool_recycle=3600,
-                connect_args={'connect_timeout': 5}
-            )
-            # اختبار الاتصال
-            with engine.connect() as conn:
-                conn.execute(text("SELECT 1"))
-            logging.info("✅ Connected to Cloud SQL (PostgreSQL)")
-            return engine
-    except Exception as e:
-        logging.warning(f"⚠️ Cloud SQL connection failed: {e}. Falling back to SQLite.")
+def init_db_tables_sqlite():
+    """إنشاء الجداول في SQLite الاحتياطي"""
+    conn = sqlite3.connect(DB_FILE)
+    cursor = conn.cursor()
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS users (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            email TEXT UNIQUE NOT NULL,
+            password_hash TEXT NOT NULL,
+            full_name TEXT NOT NULL,
+            role TEXT DEFAULT 'Free Trial',
+            credits INTEGER DEFAULT 5,
+            is_subscribed INTEGER DEFAULT 0,
+            plan_status TEXT DEFAULT 'Free Trial (5 Credits)',
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    ''')
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS projects (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id TEXT NOT NULL,
+            client_name TEXT,
+            summary TEXT,
+            budget_range TEXT,
+            tech_stack TEXT,
+            payload TEXT,
+            signature TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    ''')
+    conn.commit()
+    conn.close()
+    logging.info("✅ SQLite tables initialized.")
 
-    # --- Fallback إلى SQLite المحلي ---
-    try:
-        # تهيئة مجلد البيانات
-        os.makedirs(os.path.dirname(DB_FILE) or '.', exist_ok=True)
-        sqlite_url = f"sqlite:///{DB_FILE}"
-        engine = create_engine(sqlite_url, connect_args={'check_same_thread': False})
-        logging.info(f"✅ Connected to Local SQLite: {DB_FILE}")
-        return engine
-    except Exception as e:
-        logging.error(f"❌ Failed to initialize any database: {e}")
-        return None
-
-# تهيئة المحرك
-engine = init_hybrid_engine()
-
-def init_db_tables():
-    """إنشاء الجداول في قاعدة البيانات (تعمل مع PostgreSQL و SQLite)"""
-    if engine is None:
-        return
-    
-    try:
-        with engine.connect() as conn:
-            # إنشاء جدول المستخدمين
-            conn.execute(text("""
-                CREATE TABLE IF NOT EXISTS users (
-                    id SERIAL PRIMARY KEY,
-                    email VARCHAR(255) UNIQUE NOT NULL,
-                    password_hash VARCHAR(255) NOT NULL,
-                    full_name VARCHAR(255) NOT NULL,
-                    role VARCHAR(100) DEFAULT 'Free Trial',
-                    credits INTEGER DEFAULT 5,
-                    is_subscribed BOOLEAN DEFAULT FALSE,
-                    plan_status VARCHAR(100) DEFAULT 'Free Trial (5 Credits)',
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                )
-            """))
-            # إنشاء جدول المشاريع
-            conn.execute(text("""
-                CREATE TABLE IF NOT EXISTS projects (
-                    id SERIAL PRIMARY KEY,
-                    user_id VARCHAR(255) NOT NULL,
-                    client_name VARCHAR(255),
-                    summary TEXT,
-                    budget_range VARCHAR(100),
-                    tech_stack TEXT,
-                    payload TEXT,
-                    signature VARCHAR(255),
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                )
-            """))
-            conn.commit()
-            logging.info("✅ Database tables verified/created successfully.")
-    except Exception as e:
-        logging.error(f"❌ Error creating tables: {e}")
-
-init_db_tables()
+# تهيئة SQLite دائماً كاحتياطي
+init_db_tables_sqlite()
 
 # =====================================================================
-# 3. DATABASE OPERATIONS CLASS (Hybrid CRUD)
+# 3. DATABASE OPERATIONS CLASS (MySQL + SQLite Fallback)
 # =====================================================================
 class DatabaseEngine:
     @staticmethod
+    def _get_connection():
+        """محاولة الاتصال بـ MySQL أولاً، وفي حال الفشل استخدام SQLite"""
+        conn = get_db_connection()
+        if conn:
+            return conn, "mysql"
+        else:
+            # استخدام SQLite الاحتياطي
+            sqlite_conn = sqlite3.connect(DB_FILE)
+            sqlite_conn.row_factory = sqlite3.Row
+            return sqlite_conn, "sqlite"
+
+    @staticmethod
     def get_user(email: str) -> dict:
-        if engine is None: return None
+        conn, db_type = DatabaseEngine._get_connection()
         try:
-            with engine.connect() as conn:
-                result = conn.execute(
-                    text("SELECT * FROM users WHERE email = :email"),
-                    {"email": email}
-                ).fetchone()
-                if result:
-                    return dict(result._mapping)
+            if db_type == "mysql":
+                cursor = conn.cursor(dictionary=True)
+                cursor.execute("SELECT * FROM users WHERE email = %s", (email,))
+                user = cursor.fetchone()
+                conn.close()
+                if user:
+                    return dict(user)
+            else:  # SQLite
+                cursor = conn.cursor()
+                cursor.execute("SELECT * FROM users WHERE email = ?", (email,))
+                row = cursor.fetchone()
+                conn.close()
+                if row:
+                    return dict(row)
         except Exception as e:
             logging.error(f"Get User Error: {e}")
+            if conn:
+                conn.close()
         return None
 
     @staticmethod
     def register_user(full_name: str, email: str, hashed_pass: str) -> bool:
-        if engine is None: return False
+        conn, db_type = DatabaseEngine._get_connection()
         try:
-            with engine.connect() as conn:
-                conn.execute(
-                    text("""
-                        INSERT INTO users (full_name, email, password_hash, credits, role, plan_status)
-                        VALUES (:full_name, :email, :password_hash, 5, 'Free Trial', 'Free Trial (5 Credits)')
-                    """),
-                    {"full_name": full_name, "email": email, "password_hash": hashed_pass}
+            if db_type == "mysql":
+                cursor = conn.cursor()
+                cursor.execute(
+                    "INSERT INTO users (full_name, email, password_hash, credits, role, plan_status) VALUES (%s, %s, %s, 5, 'Free Trial', 'Free Trial (5 Credits)')",
+                    (full_name, email, hashed_pass)
                 )
                 conn.commit()
+                conn.close()
+                return True
+            else:  # SQLite
+                cursor = conn.cursor()
+                cursor.execute(
+                    "INSERT INTO users (full_name, email, password_hash, credits, role, plan_status) VALUES (?, ?, ?, 5, 'Free Trial', 'Free Trial (5 Credits)')",
+                    (full_name, email, hashed_pass)
+                )
+                conn.commit()
+                conn.close()
                 return True
         except Exception as e:
             logging.error(f"Register Error: {e}")
+            if conn:
+                conn.close()
             return False
 
     @staticmethod
     def update_credits(email: str, credits: int, plan_status: str = None) -> bool:
-        if engine is None: return False
+        conn, db_type = DatabaseEngine._get_connection()
         try:
-            with engine.connect() as conn:
+            if db_type == "mysql":
+                cursor = conn.cursor()
                 if plan_status:
-                    conn.execute(
-                        text("UPDATE users SET credits = :credits, plan_status = :plan_status WHERE email = :email"),
-                        {"credits": credits, "plan_status": plan_status, "email": email}
+                    cursor.execute(
+                        "UPDATE users SET credits = %s, plan_status = %s WHERE email = %s",
+                        (credits, plan_status, email)
                     )
                 else:
-                    conn.execute(
-                        text("UPDATE users SET credits = :credits WHERE email = :email"),
-                        {"credits": credits, "email": email}
+                    cursor.execute(
+                        "UPDATE users SET credits = %s WHERE email = %s",
+                        (credits, email)
                     )
                 conn.commit()
+                conn.close()
+                return True
+            else:  # SQLite
+                cursor = conn.cursor()
+                if plan_status:
+                    cursor.execute(
+                        "UPDATE users SET credits = ?, plan_status = ?, is_subscribed = 1 WHERE email = ?",
+                        (credits, plan_status, email)
+                    )
+                else:
+                    cursor.execute(
+                        "UPDATE users SET credits = ? WHERE email = ?",
+                        (credits, email)
+                    )
+                conn.commit()
+                conn.close()
                 return True
         except Exception as e:
             logging.error(f"Update Credits Error: {e}")
+            if conn:
+                conn.close()
             return False
 
     @staticmethod
     def save_project(user_email: str, plan_json: dict) -> bool:
-        if engine is None: return False
+        conn, db_type = DatabaseEngine._get_connection()
         try:
-            with engine.connect() as conn:
-                conn.execute(
-                    text("""
-                        INSERT INTO projects (user_id, client_name, summary, budget_range, tech_stack, payload, signature)
-                        VALUES (:user_id, :client_name, :summary, :budget_range, :tech_stack, :payload, :signature)
-                    """),
-                    {
-                        "user_id": user_email,
-                        "client_name": plan_json.get('project_name', 'مشروع غير معنون'),
-                        "summary": plan_json.get('executive_summary', ''),
-                        "budget_range": str(plan_json.get('budget', 0)),
-                        "tech_stack": json.dumps(plan_json.get('tech_stack', [])),
-                        "payload": json.dumps(plan_json, ensure_ascii=False),
-                        "signature": plan_json.get('signature', '')
-                    }
+            if db_type == "mysql":
+                cursor = conn.cursor()
+                cursor.execute(
+                    """
+                    INSERT INTO projects (user_id, client_name, summary, budget_range, tech_stack, payload, signature)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s)
+                    """,
+                    (
+                        user_email,
+                        plan_json.get('project_name', 'مشروع غير معنون'),
+                        plan_json.get('executive_summary', ''),
+                        str(plan_json.get('budget', 0)),
+                        json.dumps(plan_json.get('tech_stack', [])),
+                        json.dumps(plan_json, ensure_ascii=False),
+                        plan_json.get('signature', '')
+                    )
                 )
                 conn.commit()
+                conn.close()
+                return True
+            else:  # SQLite
+                cursor = conn.cursor()
+                cursor.execute(
+                    """
+                    INSERT INTO projects (user_id, client_name, summary, budget_range, tech_stack, payload, signature)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        user_email,
+                        plan_json.get('project_name', 'مشروع غير معنون'),
+                        plan_json.get('executive_summary', ''),
+                        str(plan_json.get('budget', 0)),
+                        json.dumps(plan_json.get('tech_stack', [])),
+                        json.dumps(plan_json, ensure_ascii=False),
+                        plan_json.get('signature', '')
+                    )
+                )
+                conn.commit()
+                conn.close()
                 return True
         except Exception as e:
             logging.error(f"Save Project Error: {e}")
+            if conn:
+                conn.close()
             return False
 
     @staticmethod
     def get_projects(user_email: str) -> list:
-        if engine is None: return []
+        conn, db_type = DatabaseEngine._get_connection()
         try:
-            with engine.connect() as conn:
-                result = conn.execute(
-                    text("""
-                        SELECT id, client_name as project_name, summary, budget_range, created_at, signature
-                        FROM projects WHERE user_id = :user_id ORDER BY created_at DESC
-                    """),
-                    {"user_id": user_email}
-                ).fetchall()
-                return [dict(r._mapping) for r in result]
+            if db_type == "mysql":
+                cursor = conn.cursor(dictionary=True)
+                cursor.execute(
+                    "SELECT id, client_name as project_name, summary, budget_range, created_at, signature FROM projects WHERE user_id = %s ORDER BY created_at DESC",
+                    (user_email,)
+                )
+                rows = cursor.fetchall()
+                conn.close()
+                return [dict(row) for row in rows] if rows else []
+            else:  # SQLite
+                cursor = conn.cursor()
+                cursor.execute(
+                    "SELECT id, client_name as project_name, summary, budget_range, created_at, signature FROM projects WHERE user_id = ? ORDER BY created_at DESC",
+                    (user_email,)
+                )
+                rows = cursor.fetchall()
+                conn.close()
+                return [dict(row) for row in rows] if rows else []
         except Exception as e:
             logging.error(f"Get Projects Error: {e}")
+            if conn:
+                conn.close()
             return []
 
     @staticmethod
     def get_similar_projects(keyword: str, top_k: int = 2) -> list:
         """RAG Engine: استرجاع مشاريع مشابهة بناءً على الكلمات المفتاحية"""
-        if engine is None: return []
+        conn, db_type = DatabaseEngine._get_connection()
+        if not conn:
+            return []
         try:
             words = [w for w in re.findall(r'\w+', keyword) if len(w) > 3]
-            if not words: return []
-            
+            if not words:
+                return []
             # بناء استعلام LIKE
-            conditions = " OR ".join(["(summary LIKE :p" + str(i) + " OR client_name LIKE :p" + str(i) + ")" for i in range(len(words[:3]))])
-            params = {}
-            for i, w in enumerate(words[:3]):
-                params[f"p{i}"] = f"%{w}%"
-            
-            query = f"SELECT summary, client_name FROM projects WHERE {conditions} LIMIT {top_k}"
-            with engine.connect() as conn:
-                result = conn.execute(text(query), params).fetchall()
-                return [dict(r._mapping) for r in result]
+            if db_type == "mysql":
+                conditions = " OR ".join(["(summary LIKE %s OR client_name LIKE %s)" for _ in words[:3]])
+                params = []
+                for w in words[:3]:
+                    pattern = f"%{w}%"
+                    params.extend([pattern, pattern])
+                query = f"SELECT summary, client_name FROM projects WHERE {conditions} LIMIT {top_k}"
+                cursor = conn.cursor(dictionary=True)
+                cursor.execute(query, params)
+                rows = cursor.fetchall()
+                conn.close()
+                return [dict(row) for row in rows] if rows else []
+            else:  # SQLite
+                conditions = " OR ".join(["(summary LIKE ? OR client_name LIKE ?)" for _ in words[:3]])
+                params = []
+                for w in words[:3]:
+                    pattern = f"%{w}%"
+                    params.extend([pattern, pattern])
+                query = f"SELECT summary, client_name FROM projects WHERE {conditions} LIMIT {top_k}"
+                cursor = conn.cursor()
+                cursor.execute(query, params)
+                rows = cursor.fetchall()
+                conn.close()
+                return [dict(row) for row in rows] if rows else []
         except Exception as e:
             logging.error(f"Similar Projects Error: {e}")
+            if conn:
+                conn.close()
             return []
 
 # =====================================================================
-# 4. SECURITY ENGINE (BCRYPT + HMAC)
+# 4. SECURITY ENGINE (BCRYPT + HMAC) - يبقى كما هو
 # =====================================================================
 class VaultSecurity:
     @classmethod
@@ -344,7 +428,7 @@ class VaultSecurity:
         return hashlib.sha256(password.encode()).hexdigest() == hashed
 
 # =====================================================================
-# 5. AI GENERATION ENGINE (GEMINI 2.5 FLASH + RAG)
+# 5. AI GENERATION ENGINE (GEMINI 2.5 FLASH + RAG) - يبقى كما هو
 # =====================================================================
 class PhoenixAI:
     @staticmethod
@@ -435,7 +519,7 @@ class PhoenixAI:
         return data
 
 # =====================================================================
-# 6. AI PAYMENT AGENT & NOTIFICATION ENGINE
+# 6. AI PAYMENT AGENT & NOTIFICATION ENGINE - يبقى كما هو
 # =====================================================================
 class AIPaymentAgent:
     @staticmethod
@@ -497,7 +581,7 @@ class NotificationEngine:
         return f"https://wa.me/{clean_phone}?text={encoded_msg}"
 
 # =====================================================================
-# 7. EXPORT ENGINES (JSON, Excel, PDF with Arabic Support)
+# 7. EXPORT ENGINES (JSON, Excel, PDF with Arabic Support) - يبقى كما هو
 # =====================================================================
 class ExportEngine:
     @staticmethod
@@ -560,7 +644,7 @@ class ExportEngine:
         return buffer.getvalue()
 
 # =====================================================================
-# 8. BUILDERS & HELPERS (Detailed Plan Text + HITL Editor)
+# 8. BUILDERS & HELPERS (Detailed Plan Text + HITL Editor) - يبقى كما هو
 # =====================================================================
 def build_detailed_plan_text(plan: dict) -> str:
     p_name = plan.get('project_name', 'المشروع')
@@ -662,7 +746,7 @@ def render_hitl_editor(plan: dict):
         st.rerun()
 
 # =====================================================================
-# 9. AUTHENTICATION PAGE
+# 9. AUTHENTICATION PAGE - يبقى كما هو
 # =====================================================================
 def render_auth_page(t):
     st.markdown("<h1 style='text-align: center;'>🔐 بوابة الدخول | PHOENIX Ultimate</h1>", unsafe_allow_html=True)
@@ -702,7 +786,7 @@ def render_auth_page(t):
                     else: st.error("❌ البريد مسجل مسبقاً.")
 
 # =====================================================================
-# 10. MAIN APPLICATION
+# 10. MAIN APPLICATION - يبقى كما هو مع تعديل طفيف في اسم التطبيق
 # =====================================================================
 def init_session():
     if "authenticated" not in st.session_state: st.session_state.authenticated = False
@@ -762,7 +846,7 @@ def main():
     user = st.session_state.user
     with st.sidebar:
         st.title("🛡️ PHOENIX")
-        st.markdown("<span class='badge-purple'>Ultimate Fusion v11</span>", unsafe_allow_html=True)
+        st.markdown("<span class='badge-purple'>Ultimate Fusion v11.1</span>", unsafe_allow_html=True)
         st.radio(t['lang_select'], ["العربية", "English"], index=0 if lang=='ar' else 1, key='lang_radio', on_change=update_lang)
         st.radio(t['theme_select'], [t['dark'], t['light']], index=0 if st.session_state.theme=='dark' else 1, key='theme_radio', on_change=update_theme)
         st.write("---")
