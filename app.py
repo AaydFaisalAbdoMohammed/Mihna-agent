@@ -109,6 +109,16 @@ def init_db():
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     ''')
+    
+    # Auto-migration safety check for existing SQLite schemas
+    try:
+        cursor.execute("PRAGMA table_info(users)")
+        columns = [column[1] for column in cursor.fetchall()]
+        if 'password' not in columns:
+            cursor.execute("ALTER TABLE users ADD COLUMN password TEXT DEFAULT ''")
+    except Exception as e:
+        logging.error(f"Migration error: {e}")
+
     conn.commit()
     conn.close()
 
@@ -256,7 +266,9 @@ class VaultSecurity:
 
     @classmethod
     def verify_password(cls, password: str, hashed: str) -> bool:
-        if BCRYPT_AVAILABLE and hashed.startswith("$2b$"):
+        if not hashed:
+            return False
+        if BCRYPT_AVAILABLE and str(hashed).startswith("$2b$"):
             try:
                 return bcrypt.checkpw(password.encode(), hashed.encode())
             except Exception:
@@ -680,10 +692,8 @@ def render_dynamic_css():
     text_color = "#FFFFFF" if st.session_state.theme == 'dark' else "#0F172A"
     border_color = "#334155" if st.session_state.theme == 'dark' else "#E2E8F0"
 
-    # إصلاح ذكي وجذري لمنع انهيار العناصر وتجمع الخيارات في الخط الأوسط عند وضع RTL
     st.markdown(f"""
     <style>
-        /* تطبيق الاتجاه على العناوين الفقرات والحاويات الرئيسية فقط لتجنب كسر عناصر Streamlit المطلقة */
         .main .block-container {{
             direction: {direction};
             text-align: {align_text};
@@ -693,7 +703,6 @@ def render_dynamic_css():
             text-align: {align_text};
         }}
         
-        /* عزل السايدبار وضبط اتجاه محتواه بأمان */
         section[data-testid="stSidebar"] > div {{
             direction: {direction};
             text-align: {align_text};
@@ -701,7 +710,6 @@ def render_dynamic_css():
 
         .stApp {{ background-color: {bg_color}; color: {text_color}; }}
         
-        /* الشارات والشعارات */
         .badge-green {{ background-color: #10B981; color: white; padding: 6px 14px; border-radius: 12px; font-weight: bold; font-size: 13px; display: inline-block; text-align: center; margin: 4px; }}
         .badge-purple {{ background-color: #8B5CF6; color: white; padding: 6px 14px; border-radius: 12px; font-weight: bold; font-size: 13px; display: inline-block; text-align: center; margin: 4px; }}
         .badge-gold {{ background-color: #F59E0B; color: white; padding: 6px 14px; border-radius: 12px; font-weight: bold; font-size: 13px; display: inline-block; text-align: center; margin: 4px; }}
@@ -747,7 +755,8 @@ def render_auth_page():
                 p = st.text_input(txt['pass_lbl'], type="password", placeholder="••••••••")
                 if st.form_submit_button(txt['login_btn'], use_container_width=True):
                     u = DatabaseEngine.get_user(e)
-                    if u and VaultSecurity.verify_password(p, u["password"]):
+                    # Safe check for password field to prevent KeyError
+                    if u and VaultSecurity.verify_password(p, u.get("password", "")):
                         st.session_state.authenticated = True
                         st.session_state.current_user = u
                         st.success(f"🎉 Welcome back {u['name']}!" if st.session_state.lang=='en' else f"🎉 أهلاً بك مجدداً {u['name']}!")
@@ -1043,9 +1052,9 @@ def main():
         with c_p1:
             st.markdown(f"""<div class="pricing-card"><h3>{txt['plan_trial_title']}</h3><h2>$0</h2><hr><p>✔ 5 {txt['pts']}</p><p>✔ HMAC Digital Signature</p></div>""", unsafe_allow_html=True)
         with c_p2:
-            st.markdown(f"""<div class="pricing-card-highlight"><span class="badge-purple">{txt['popular_badge']}</span><h3>{txt['plan_pro_title']}</h3><h2>$29 <small>/ month</small></h2><hr><a href="{PAYMENT_LINK_MONTHLY}" target="_blank" class="checkout-btn">{txt['ext_sub_btn']}</a></div>""", unsafe_allow_html=True)
+            st.markdown(f"""<div class="pricing-card-highlight"><span class="badge-purple">{txt['popular_badge']}</span><h3>{txt['plan_pro_title']}</h3><h2>$29 <small>/ month</small></h2><hr><a href="{PAYMENT_LINK_MONTHLY}" target="_blank" class="checkout-btn">{txt["ext_sub_btn"]}</a></div>""", unsafe_allow_html=True)
         with c_p3:
-            st.markdown(f"""<div class="pricing-card"><span class="badge-gold">{txt['discount_badge']}</span><h3>{txt['plan_ent_title']}</h3><h2>$279 <small>/ year</small></h2><hr><a href="{PAYMENT_LINK_YEARLY}" target="_blank" class="checkout-btn-yearly">{txt['ext_sub_btn']}</a></div>""", unsafe_allow_html=True)
+            st.markdown(f"""<div class="pricing-card"><span class="badge-gold">{txt['discount_badge']}</span><h3>{txt['plan_ent_title']}</h3><h2>$279 <small>/ year</small></h2><hr><a href="{PAYMENT_LINK_YEARLY}" target="_blank" class="checkout-btn-yearly">{txt["ext_sub_btn"]}</a></div>""", unsafe_allow_html=True)
 
         if st.session_state.get('payment_notifications'):
             st.write("---")
