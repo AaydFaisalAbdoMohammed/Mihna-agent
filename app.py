@@ -1425,4 +1425,54 @@ with tab3:
             key="task_data_editor"
         )
         
-        if st.button(txt['save_r
+        if st.button(txt['save_re_sign'], type="primary", use_container_width=True):
+            # تحديث قائمة المهام وإعادة توقيع الخطة رقمياً
+            updated_tasks = edited_df.to_dict(orient="records")
+            st.session_state.current_plan['tasks'] = updated_tasks
+            
+            # إعادة التوقيع الرقمي للحفاظ على ناهزية البيانات وموثوقيتها
+            new_sig = SecurityEngine.generate_signature(st.session_state.current_plan)
+            st.session_state.plan_signature = new_sig
+            
+            st.success("✅ تم حفظ التعديلات وإعادة التوقيع الرقمي للبيانات بنجاح!")
+            st.rerun()
+
+        st.write("---")
+        st.markdown(f"### {txt['detailed_plan']}")
+        detailed_text_output = build_detailed_plan_text(st.session_state.current_plan)
+        st.markdown(detailed_text_output)
+
+# ==========================================
+# TAB 4: إدارة الحساب والاشتراكات
+# ==========================================
+with tab4:
+    st.subheader(txt['tab4'])
+    
+    col_acc1, col_acc2 = st.columns(2)
+    with col_acc1:
+        st.markdown("### 👤 بيانات المستخدم الحالي")
+        st.write(f"**الاسم الكامل:** {st.session_state.user['username']}")
+        st.write(f"**البريد الإلكتروني:** {st.session_state.user['email']}")
+        st.write(f"**نوع الاشتراك:** {st.session_state.user['role']}")
+        st.write(f"**الرصيد المتاح:** {st.session_state.user['credits']} نقطة")
+        
+    with col_acc2:
+        st.markdown("### 🛒 خطط الترقية المتاحة")
+        st.markdown(f'<a href="{PAYMENT_LINK_MONTHLY}" target="_blank" class="checkout-btn">💳 الاشتراك الشهري ($29)</a>', unsafe_allow_html=True)
+        st.write("")
+        st.markdown(f'<a href="{PAYMENT_LINK_YEARLY}" target="_blank" class="checkout-btn-yearly">👑 الاشتراك السنوي ($279)</a>', unsafe_allow_html=True)
+
+    if 'payment_notifications' in st.session_state and st.session_state.payment_notifications:
+        st.write("---")
+        st.markdown("### 📩 سجل إشعارات الدفع والعمليات الذكية")
+        for notif in st.session_state.payment_notifications:
+            st.markdown(f"""
+            <div class="email-notification-box">
+                <b>المستلم:</b> {notif['to']}<br>
+                <b>رقم الطلب:</b> {notif['order_id']}<br>
+                <b>الباقة:</b> {notif['plan_name']} ({notif['amount']})<br>
+                <b>التاريخ:</b> {notif['date']}<br>
+                <b>الموضوع:</b> {notif['subject']}
+            </div>
+            """, unsafe_allow_html=True)
+        
