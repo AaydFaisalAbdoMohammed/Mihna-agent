@@ -321,9 +321,9 @@ def main():
             with col_n2:
                 if st.button(txt['send_tg'], use_container_width=True):
                     st.success(f"✅ تم إرسال التنبيه إلى {st.session_state.notify_telegram}")
-                 # أسفل خيارات الإرسال عبر واتساب وتليجرام في tab1:
-                    st.divider()
-                       render_telephony_widget()
+
+            st.divider()
+            render_telephony_widget()
 
     # TAB 2: ADVANCED 6D INTERACTIVE ANALYTICS
     with tab2:
@@ -559,7 +559,7 @@ def main():
     if is_ceo_owner:
         with tab_admin:
             st.subheader("👑 لوحة قيادة الإدارة العليا والمالك (CEO Control Center)")
-            st.caption(f"مرحباً بك! هذه الصفحة مخفية عن جميع المستخدمين العاديين وتظهر فقط للمشرفين المعتمدين.")
+            st.caption("مرحباً بك! هذه الصفحة مخفية عن جميع المستخدمين العاديين وتظهر فقط للمشرفين المعتمدين.")
 
             all_users = HybridDatabaseEngine.get_all_users_admin()
             total_users_count = len(all_users)
