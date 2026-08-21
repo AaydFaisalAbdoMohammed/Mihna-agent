@@ -321,6 +321,9 @@ def main():
             with col_n2:
                 if st.button(txt['send_tg'], use_container_width=True):
                     st.success(f"✅ تم إرسال التنبيه إلى {st.session_state.notify_telegram}")
+                 # أسفل خيارات الإرسال عبر واتساب وتليجرام في tab1:
+                    st.divider()
+                       render_telephony_widget()
 
     # TAB 2: ADVANCED 6D INTERACTIVE ANALYTICS
     with tab2:
