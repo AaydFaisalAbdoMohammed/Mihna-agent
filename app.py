@@ -18,7 +18,7 @@ import streamlit as st
 from telephony import TelephonyEngine, render_telephony_widget
 from db import HybridDatabaseEngine, SUPER_ADMIN_EMAILS
 from auth import render_auth_page
-from ai import PhoenixAI, AIPaymentAgent
+from ai.facade import AIFacade
 from utils import (
     SecurityEngine, NotificationEngine, generate_excel_download,
     generate_pdf_plan, build_detailed_plan_text, create_half_doughnut_gauge,
@@ -175,11 +175,11 @@ def main():
         st.divider()
         st.markdown(f"### {txt['renew_title']}")
         all_fb = HybridDatabaseEngine.get_all_feedback()
-        adapted_insights = PhoenixAI.analyze_feedback_and_adapt_pricing(all_fb)
+        adapted_insights = AIFacade.analyze_feedback_and_adapt_pricing(all_fb)
 
         if not st.session_state.user['is_subscribed']:
             if st.button("🤖 الدفع الذكي والتفعيل السريع", type="primary", use_container_width=True):
-                AIPaymentAgent.execute_auto_checkout(st.session_state.user['email'], "monthly")
+                AIFacade.execute_auto_checkout(st.session_state.user['email'], "monthly")
                 st.balloons()
                 st.success("🎉 تم ترقية حسابك بنجاح!")
                 time.sleep(1)
@@ -207,12 +207,12 @@ def main():
         col_pay_ai1, col_pay_ai2 = st.columns(2)
         with col_pay_ai1:
             if st.button(f"🚀 تفعيل باقة Pro الشهري (${adapted_insights['recommended_monthly']})", type="primary", use_container_width=True):
-                AIPaymentAgent.execute_auto_checkout(st.session_state.user['email'], "monthly")
+                AIFacade.execute_auto_checkout(st.session_state.user['email'], "monthly")
                 st.balloons()
                 st.rerun()
         with col_pay_ai2:
             if st.button(f"💎 تفعيل باقة Enterprise السنوية (${adapted_insights['recommended_yearly']})", use_container_width=True):
-                AIPaymentAgent.execute_auto_checkout(st.session_state.user['email'], "yearly")
+                AIFacade.execute_auto_checkout(st.session_state.user['email'], "yearly")
                 st.balloons()
                 st.rerun()
 
@@ -263,7 +263,9 @@ def main():
                         "project_name": project_name, "domain": domain, "budget": budget,
                         "target_days": target_days, "tech_stack": tech_stack, "scope": project_scope, "risk": risk_tolerance
                     }
-                    plan = PhoenixAI.generate_architecture(req, api_key=gemini_key)
+                    
+                    ai_facade = AIFacade(api_key=gemini_key if gemini_key else None)
+                    plan = ai_facade.generate_architecture(req)
                     HybridDatabaseEngine.save_project_plan_full(plan, st.session_state.user['email'])
 
                     if not st.session_state.user['is_subscribed']:
@@ -288,7 +290,7 @@ def main():
                     st.markdown(f"<br><span class='badge-purple'>{txt['sig_invalid']}</span>", unsafe_allow_html=True)
 
             st.markdown("### 👥 الكوادر والمتخصصون المطلوبون وأجورهم المخصصة (Specialist Payroll & Hours)")
-            specs = PhoenixAI.calculate_specialists_breakdown(
+            specs = AIFacade.calculate_specialists_breakdown(
                 st.session_state.current_plan['budget'],
                 st.session_state.current_plan['target_days'],
                 st.session_state.current_plan['domain']
@@ -481,7 +483,7 @@ def main():
         with col_fb2:
             st.markdown("### 🏆 لوحة إثبات احتياج السوق وقوة التكيف")
             feedbacks = HybridDatabaseEngine.get_all_feedback()
-            adapted = PhoenixAI.analyze_feedback_and_adapt_pricing(feedbacks)
+            adapted = AIFacade.analyze_feedback_and_adapt_pricing(feedbacks)
 
             st.markdown(f"""
             <div class="feedback-card">
