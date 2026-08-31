@@ -39,7 +39,7 @@ from auth import render_auth_page
 APP_TITLE = "PHOENIX & WAKEEL MEHNA PRO - ULTRA ENTERPRISE v15.0 (CAD/PDF Takeoff Edition)"
 
 # تهيئة المحرك الهندسي الذكي
-eng_ai = EngineeringAIEngine()
+
 
 # =============================================================================
 # 🔬 MULTIMODAL AI PHOTO-TO-ESTIMATE & PDF/CAD TAKEOFF CORE ENGINE v15.0
