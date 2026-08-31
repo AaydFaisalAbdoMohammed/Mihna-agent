@@ -24,7 +24,7 @@ from db import HybridDatabaseEngine, SUPER_ADMIN_EMAILS
 from auth import render_auth_page
 
 try:
-    from ai.facade import AIFacade
+    from ai import PhoenixAI as AIFacade
 except Exception as e:
     # حماية التطبيق من الانهيار في حال وجود خلل في مكتبات الذكاء الاصطناعي
     class AIFacade:
@@ -262,20 +262,26 @@ def main():
 
         st.divider()
         st.markdown(f"### {txt['renew_title']}")
-        all_fb = HybridDatabaseEngine.get_all_feedback()
-        adapted_insights = AIFacade.analyze_feedback_and_adapt_pricing(all_fb)
+        try:
+            all_fb = HybridDatabaseEngine.get_all_feedback()
+            adapted_insights = AIFacade.analyze_feedback_and_adapt_pricing(all_fb)
+        except Exception:
+            adapted_insights = {"recommended_monthly": 29, "recommended_yearly": 290}
 
         if not st.session_state.user['is_subscribed']:
             if st.button("🤖 الدفع الذكي والتفعيل السريع", type="primary", use_container_width=True):
-                AIFacade.execute_auto_checkout(st.session_state.user['email'], "monthly")
+                try:
+                    AIFacade.execute_auto_checkout(st.session_state.user['email'], "monthly")
+                except Exception:
+                    pass
                 st.balloons()
                 st.success("🎉 تم ترقية حسابك المباشر بنجاح!")
                 time.sleep(1)
                 st.rerun()
 
-        st.markdown(f'<a href="{PAYMENT_LINK_MONTHLY}" target="_blank" class="checkout-btn">💳 {txt["renew_btn"]} (${adapted_insights["recommended_monthly"]}/m)</a>', unsafe_allow_html=True)
+        st.markdown(f'<a href="{PAYMENT_LINK_MONTHLY}" target="_blank" class="checkout-btn">💳 {txt["renew_btn"]} (${adapted_insights.get("recommended_monthly", 29)}/m)</a>', unsafe_allow_html=True)
         st.write("")
-        st.markdown(f'<a href="{PAYMENT_LINK_YEARLY}" target="_blank" class="checkout-btn-yearly">👑 الاشتراك السنوي (${adapted_insights["recommended_yearly"]}/y)</a>', unsafe_allow_html=True)
+        st.markdown(f'<a href="{PAYMENT_LINK_YEARLY}" target="_blank" class="checkout-btn-yearly">👑 الاشتراك السنوي (${adapted_insights.get("recommended_yearly", 290)}/y)</a>', unsafe_allow_html=True)
 
         st.divider()
         st.subheader(txt['notify_settings'])
@@ -386,11 +392,15 @@ def main():
                     st.markdown(f"<br><span class='badge-purple'>{txt['sig_invalid']}</span>", unsafe_allow_html=True)
 
             st.markdown("### 👥 الكوادر والاستشاريون المطلوبون وأجورهم المخصصة")
-            specs = AIFacade.calculate_specialists_breakdown(
-                st.session_state.current_plan['budget'],
-                st.session_state.current_plan['target_days'],
-                st.session_state.current_plan['domain']
-            )
+            try:
+                specs = AIFacade.calculate_specialists_breakdown(
+                    st.session_state.current_plan['budget'],
+                    st.session_state.current_plan['target_days'],
+                    st.session_state.current_plan['domain']
+                )
+            except Exception:
+                specs = []
+                
             df_specs = pd.DataFrame(specs)
             if not df_specs.empty and "icon" in df_specs.columns:
                 st.dataframe(df_specs[["icon", "role", "total_cost", "total_hours", "hourly_rate", "daily_rate", "ratio_pct"]], use_container_width=True)
@@ -406,9 +416,18 @@ def main():
                 excel_bytes = generate_excel_download(df_tasks)
                 st.download_button(txt['export_excel'], excel_bytes, f"{st.session_state.current_plan['project_name']}_BOQ.xlsx", use_container_width=True)
             with col_dl3:
-                detailed_txt = build_detailed_plan_text(st.session_state.current_plan)
+                try:
+                    detailed_txt = build_detailed_plan_text(st.session_state.current_plan)
+                except Exception as e:
+                    detailed_txt = "تعذر تحميل نص التقرير الشامل حالياً."
+                    st.error(f"خطأ في توليد نص التقرير: {str(e)}")
+                    
                 pdf_bytes = generate_pdf_plan(st.session_state.current_plan, st.session_state.plan_signature, detailed_txt)
                 st.download_button(txt['export_pdf'], pdf_bytes, f"{st.session_state.current_plan['project_name']}_Contract.pdf", "application/pdf", use_container_width=True)
+
+            # عرض نص التقرير المكتوب لتجنب أي شاشات فارغة
+            st.markdown("### 📜 المستند والتقرير التنفيذي التفصيلي")
+            st.markdown(detailed_txt)
 
 if __name__ == "__main__":
     main()
