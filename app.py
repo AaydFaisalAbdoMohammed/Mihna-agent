@@ -4,7 +4,7 @@
 """
 ===============================================================================
 © 2026 PHOENIX & MIHNA AGENT PRO ENTERPRISE ARCHITECTURE v14.0 - HYBRID ULTIMATE
-الواجهة الرئيسية ومسار تشغيل التطبيق بعد التقسيم الهيكلي الموحد والدمج الهندسي
+الواجهة الرئيسية لتشغيل تطبيق Streamlit والمربوطة بالكامل مع كائنات Domain Services
 ===============================================================================
 """
 
@@ -15,11 +15,15 @@ import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
 
-# Modules Import
+# 1. استدعاء طبقات الـ Domain والكائنات الهندسية والـ Facade
+from ai.facade import AIFacade
+from domain.models.project import Project
+from domain.services.analysis_service import ProjectAnalysisDomainService
+
+# 2. استدعاء الوحدات والخدمات المساندة
 from telephony import TelephonyEngine, render_telephony_widget
 from db import HybridDatabaseEngine, SUPER_ADMIN_EMAILS
 from auth import render_auth_page
-from ai.facade import AIFacade
 from utils import (
     SecurityEngine, NotificationEngine, generate_excel_download,
     generate_pdf_plan, build_detailed_plan_text, create_half_doughnut_gauge,
@@ -45,6 +49,13 @@ def init_session():
     if 'form_days' not in st.session_state: st.session_state.form_days = 30
     if 'payment_notifications' not in st.session_state: st.session_state.payment_notifications = []
     if 'engineering_analysis_result' not in st.session_state: st.session_state.engineering_analysis_result = None
+
+# إعداد وحقن خدمات الـ Domain Services
+@st.cache_resource
+def get_domain_services(api_key: str = None) -> tuple[AIFacade, ProjectAnalysisDomainService]:
+    facade = AIFacade(api_key=api_key)
+    analysis_service = ProjectAnalysisDomainService(ai_facade=facade)
+    return facade, analysis_service
 
 T = {
     'ar': {
@@ -387,14 +398,16 @@ def main():
                 if st.button(txt['send_tg'], use_container_width=True):
                     st.success(f"✅ تم إرسال التنبيه إلى {st.session_state.notify_telegram}")
 
-    # TAB ENG: BLUEPRINT READER & STRUCTURAL ANALYSIS (شامل لكافة الأقسام)
+    # TAB ENG: BLUEPRINT READER & STRUCTURAL ANALYSIS (مربوط بـ Project & ProjectAnalysisDomainService)
     with tab_eng:
         st.header("📐 التخطيط الهندسي وقراءة المخططات المعمارية والإنشائية")
         st.caption("نظام الفحص التلقائي واستخراج كميات مواد البناء، تقييم السلامة الإنشائية، ومواصفات الاستدامة.")
 
         uploaded_file = st.file_uploader("اختر ملف المخطط الهندسي (PDF / صورة)", type=["pdf", "png", "jpg", "jpeg"], key="blueprint_uploader")
 
-        col_area, col_floors = st.columns(2)
+        col_p_id, col_area, col_floors = st.columns(3)
+        with col_p_id:
+            project_id_input = st.text_input("معرف المشروع (Project ID)", value="PRJ-2026-001", key="eng_project_id")
         with col_area:
             land_area = st.number_input("مساحة الأرض التقديرية (م²):", min_value=50.0, value=200.0, step=10.0, key="eng_land_area")
         with col_floors:
@@ -409,12 +422,18 @@ def main():
                 user_gemini_key = st.session_state.get("gemini_key_input", "")
 
                 try:
-                    facade = AIFacade(api_key=user_gemini_key if user_gemini_key else None)
-                    with st.spinner("جاري فحص المخطط وقراءة الكميات والتحليل الإنشائي والسلامة..."):
-                        result = facade.process_full_engineering_pipeline(
-                            file_bytes=file_bytes,
-                            mime_type=mime_type,
-                            metadata={"land_area": land_area, "floors": floors_count}
+                    # 1. تهيئة طبقة الخدمات وكائنات النطاق Domain Service
+                    active_key = user_gemini_key.strip() if user_gemini_key else os.environ.get("GEMINI_API_KEY")
+                    facade, analysis_service = get_domain_services(api_key=active_key)
+                    
+                    # 2. إنشاء كائن Project وتمريره إلى Domain Service
+                    project_model = Project(id=project_id_input, land_area=land_area, num_floors=floors_count)
+                    
+                    with st.spinner("جاري فحص المخطط عبر Domain Service وقراءة الكميات والتحليل الإنشائي..."):
+                        result = analysis_service.execute_full_project_intake(
+                            project=project_model,
+                            blueprint_bytes=file_bytes,
+                            mime_type=mime_type
                         )
                         st.session_state.engineering_analysis_result = result
 
@@ -422,10 +441,13 @@ def main():
                     st.error(f"حدث خطأ أثناء معالجة المخطط: {str(e)}")
 
         # عرض نتائج التحليل الكامل بكافة أقسامها
-        res = st.session_state.engineering_analysis_result
-        if res:
+        res_container = st.session_state.engineering_analysis_result
+        if res_container:
+            project_id_res = res_container.get("project_id", "")
+            res = res_container.get("analysis", {})
+
             if res.get("success"):
-                st.success("🎉 تم تحليل المخطط الهيكلي وصدور التقرير الهندسي الشامل!")
+                st.success(f"🎉 تم تحليل المخطط بنجاح للمشروع: ({project_id_res}) وصدور التقرير الهندسي الشامل!")
                 res_tab1, res_tab2, res_tab3, res_tab4 = st.tabs([
                     "🏛️ الهيكل والمواصفات المعمارية", 
                     "📊 جدول كميات المواد (BOQ)", 
@@ -453,7 +475,7 @@ def main():
                     st.subheader("🌱 تقييم الاستدامة والبصمة الكربونية وكفاءة الطاقة")
                     st.write(res.get("sustainability", {}))
             else:
-                st.error(f"❌ تم رفض المخطط من المحرك الهندسي: {res.get('reason')}")
+                st.error(f"❌ تم رفض المخطط من المحرك الهندسي: {res.get('reason')} (المرحلة: {res.get('stage')})")
 
     # TAB TELEPHONY: COMMUNICATIONS & MESSAGING
     with tab_telephony:
