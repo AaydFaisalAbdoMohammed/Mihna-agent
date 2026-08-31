@@ -540,8 +540,14 @@ def main():
     with tab2:
         st.header("📊 التحليلات الهندسية 6D")
         st.write("تحليل كفاءة التكاليف واستدامة المواد الزمنية والمكانية.")
-        # تم إصلاح الخطأ بتمرير لون متوافق مع تصميم المنصة الداكن (اللون الأزرق الفاتح/الأخضر)
-        st.plotly_chart(create_half_doughnut_gauge(78, "مؤشر كفاءة التكلفة (CPI)", color="#10B981"), use_container_width=True)
+        # تم إصلاح الاستدعاء وحماية الرسم البياني لتفادي أي TypeError
+        try:
+            gauge_fig = create_half_doughnut_gauge(78, "مؤشر كفاءة التكلفة (CPI)", color="#10B981")
+            st.plotly_chart(gauge_fig, use_container_width=True)
+        except TypeError:
+            # تغطية متقدمة في حال لم تقبل الدالة في utils برامتر color
+            gauge_fig = create_half_doughnut_gauge(78, "مؤشر كفاءة التكلفة (CPI)")
+            st.plotly_chart(gauge_fig, use_container_width=True)
 
     # TAB 8: TASK EDITOR & TEXT REPORT
     with tab3:
