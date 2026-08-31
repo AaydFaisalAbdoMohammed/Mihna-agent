@@ -583,11 +583,20 @@ def main():
         st.markdown(f"**نوع الحساب:** `{st.session_state.user['role']}`")
         st.markdown(f"**الرصيد المتبقي:** `{st.session_state.user['credits']}` نقطة")
 
-    # TAB 11: CLOUD SQL ARCHIVE
+        # TAB 11: CLOUD SQL ARCHIVE (tab6 في المتغيرات)
     with tab6:
         st.header("🗄️ الأرشيف والتكامل Cloud SQL")
         st.write("سجل المشاريع والخطط الموثوقة المحفوظة في قاعدة البيانات:")
-        user_plans = HybridDatabaseEngine.get_user_plans(st.session_state.user['email'])
+        
+        try:
+            if hasattr(HybridDatabaseEngine, 'get_user_plans'):
+                user_plans = HybridDatabaseEngine.get_user_plans(st.session_state.user['email'])
+            else:
+                user_plans = []
+        except Exception as e:
+            user_plans = []
+            st.warning(f"⚠️ تعذر جلب السجلات من قاعدة البيانات: {str(e)}")
+
         if user_plans:
             st.json(user_plans)
         else:
