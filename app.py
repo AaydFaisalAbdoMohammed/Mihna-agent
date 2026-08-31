@@ -177,7 +177,7 @@ def generate_fallback_architecture(req):
     domain = req.get("domain", "الهندسة والإنشاءات")
     
     tasks = [
-        {"id": 1, "task": "الدراسات المساحية واختبارات التربة الجيوتقنية", "duration_days": int(d*0.10), "cost": b*0.08, "owner": "مهندس التربة والمساحة"},
+        {"id": 1, "task": "الدراسات المساحية وااختبارات التربة الجيوتقنية", "duration_days": int(d*0.10), "cost": b*0.08, "owner": "مهندس التربة والمساحة"},
         {"id": 2, "task": "التصميم المعماري والإنشائي واعتماد المخططات", "duration_days": int(d*0.15), "cost": b*0.12, "owner": "المهندس المصمم"},
         {"id": 3, "task": "أعمال الحفريات والأساسات والخرسانة المسلحة (الركائز)", "duration_days": int(d*0.30), "cost": b*0.35, "owner": "مقاول الخرسانات"},
         {"id": 4, "task": "الهيكل العظمي والمباني والمرافق الكهروميكانيكية (MEP)", "duration_days": int(d*0.30), "cost": b*0.30, "owner": "مهندس الموقع والكهرباء"},
@@ -466,7 +466,7 @@ def main():
     # TAB 3: GENERATIVE 2D BLUEPRINT
     with tab_arch:
         st.header("🏛️ المخطط المعماري التوليدي 2D")
-        st.write("توليد مساقط أفقية ومخططات معمارية بناءً على المساحة المطلوبة واشتراطات المشروع.")
+        st.write("توليد مساقط أفقية ومخططات معمارية بناءً على المساحة المطلوبة وااشتراطات المشروع.")
         
         col_a1, col_a2 = st.columns(2)
         with col_a1:
@@ -540,10 +540,8 @@ def main():
     with tab2:
         st.header("📊 التحليلات الهندسية 6D")
         st.write("تحليل كفاءة التكاليف واستدامة المواد الزمنية والمكانية.")
-        if st.session_state.current_plan:
-            st.plotly_chart(create_half_doughnut_gauge(78, "مؤشر كفاءة التكلفة (CPI)"), use_container_width=True)
-        else:
-            st.info("قم بتوليد خطة من التبويب الأول للوصول للتحليلات التفاعلية كاملة.")
+        # تم إصلاح الخطأ بتمرير لون متوافق مع تصميم المنصة الداكن (اللون الأزرق الفاتح/الأخضر)
+        st.plotly_chart(create_half_doughnut_gauge(78, "مؤشر كفاءة التكلفة (CPI)", color="#10B981"), use_container_width=True)
 
     # TAB 8: TASK EDITOR & TEXT REPORT
     with tab3:
