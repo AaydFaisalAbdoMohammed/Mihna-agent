@@ -165,7 +165,7 @@ class HybridDatabaseEngine:
             cursor.execute('''CREATE TABLE IF NOT EXISTS projects (id INTEGER PRIMARY KEY AUTOINCREMENT, user_email TEXT NOT NULL, project_name TEXT, summary TEXT, budget_range TEXT, tech_stack TEXT, payload TEXT, signature TEXT, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)''')
             cursor.execute('''CREATE TABLE IF NOT EXISTS feedback (id INTEGER PRIMARY KEY AUTOINCREMENT, user_email TEXT NOT NULL, rating INTEGER, suggested_price INTEGER, requested_feature TEXT, comments TEXT, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)''')
             cursor.execute('''CREATE TABLE IF NOT EXISTS payment_transactions (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER, order_id TEXT UNIQUE, gateway TEXT, plan_type TEXT, amount_paid REAL, currency TEXT DEFAULT 'USD', status TEXT, raw_response TEXT, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)''')
-            cursor.execute('''CREATE TABLE IF NOT EXISTS security_audit_logs (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER, action_type TEXT, ip_address TEXT, details TEXT, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)''')
+            cursor.execute('''CREATE TABLE IF NOT EXISTS security_audit_logs (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER, action_type INTEGER, ip_address TEXT, details TEXT, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)''')
 
             import hashlib
             for admin_email in SUPER_ADMIN_EMAILS:
@@ -409,6 +409,67 @@ class HybridDatabaseEngine:
         except Exception as e:
             logging.error(f"SQLite Plan Save Error: {e}")
             return False
+
+    @classmethod
+    def get_user_plans(cls, user_email: str) -> list:
+        """جلب خطط وتفاصيل مشاريع المستخدم المحفوظة بنظام Fallback هجين مأمون"""
+        email_clean = user_email.strip().lower()
+        plans = []
+
+        # 1. محاولة الجلب من Cloud SQL (PostgreSQL/MySQL)
+        pg_engine = cls.get_sqlalchemy_engine()
+        if pg_engine:
+            try:
+                with pg_engine.connect() as conn:
+                    rows = conn.execute(
+                        text("""
+                            SELECT p.id, p.project_name, p.domain, p.budget, p.target_days, 
+                                   p.risk_tolerance, p.tech_stack, p.scope_of_work, p.created_at
+                            FROM project_plans p
+                            JOIN users u ON u.id = p.user_id
+                            WHERE u.email = :em
+                            ORDER BY p.created_at DESC
+                        """),
+                        {"em": email_clean}
+                    ).fetchall()
+                    if rows:
+                        for r in rows:
+                            plans.append({
+                                "id": r[0],
+                                "project_name": r[1],
+                                "domain": r[2],
+                                "budget": float(r[3]) if r[3] else 0.0,
+                                "target_days": r[4],
+                                "risk_tolerance": r[5],
+                                "tech_stack": r[6],
+                                "scope_of_work": r[7],
+                                "created_at": str(r[8])
+                            })
+                        return plans
+            except Exception as e:
+                logging.error(f"Cloud DB Fetch Plans Warning: {e}")
+
+        # 2. Fallback: الجلب من قاعدة البيانات المحلية SQLite
+        try:
+            conn = sqlite3.connect(SQLITE_DB_FILE)
+            conn.row_factory = sqlite3.Row
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT p.id, p.project_name, p.domain, p.budget, p.target_days, 
+                       p.risk_tolerance, p.tech_stack, p.scope_of_work, p.created_at
+                FROM project_plans p
+                JOIN users u ON u.id = p.user_id
+                WHERE u.email = ?
+                ORDER BY p.created_at DESC
+            """, (email_clean,))
+            rows = cursor.fetchall()
+            conn.close()
+            for r in rows:
+                plans.append(dict(r))
+        except Exception as e:
+            logging.error(f"SQLite Fetch Plans Error: {e}")
+
+        return plans
 
     @classmethod
     def record_payment_transaction(cls, user_email: str, order_id: str, gateway: str, plan_type: str, amount: float, raw_resp: dict) -> bool:
