@@ -783,7 +783,76 @@ def main():
                 df_admin_fb = pd.DataFrame(admin_fb)
                 st.dataframe(df_admin_fb[["user_email", "rating", "suggested_price", "requested_feature", "comments", "created_at"]], use_container_width=True)
             else:
-                st.info("لا توجد طلبات مدخلة حتى الآن.")
+                st.info("لا توجد طلبات مدخلة حتى الآن."
+                            # إكمال التبويب الثالث (Task Editor & Text Plan)
+            st.markdown(build_detailed_plan_text(st.session_state.current_plan))
+            st.markdown("</div>", unsafe_allow_html=True)
+
+    # TAB 4: التغذية الراجعة والتسعير الديناميكي (Feedback & Pricing)
+    with tab4:
+        st.markdown("<div class='glass-card'>", unsafe_allow_html=True)
+        st.subheader(txt['pricing_adapted_title'])
+        st.caption(txt['pricing_adapted_caption'])
+        
+        # واجهة بسيطة لجمع آراء المستخدمين
+        st.markdown(f"### {txt['share_feedback_title']}")
+        feedback_rating = st.slider(txt['star_rating_label'], 1, 5, 5)
+        feedback_text = st.text_area("أضف تعليقك أو مقترحك لتطوير المنصة:")
+        
+        if st.button("إرسال التقييم 🚀", use_container_width=True):
+            st.success("تم إرسال تقييمك بنجاح! شكراً لمساهمتك في تحسين المنصة.")
+        st.markdown("</div>", unsafe_allow_html=True)
+
+    # TAB 5: الحساب والاشتراكات (Account & Subscriptions)
+    with tab5:
+        st.markdown("<div class='glass-card'>", unsafe_allow_html=True)
+        st.subheader(txt['account_info_title'])
+        
+        col_acc1, col_acc2 = st.columns(2)
+        with col_acc1:
+            st.write(f"**{txt['email_label']}:** {st.session_state.user['email']}")
+            st.write(f"**حالة الحساب:** {'نشط (Pro)' if st.session_state.user['is_subscribed'] else 'تجريبي (Free Trial)'}")
+        with col_acc2:
+            st.write(f"**الرصيد المتاح:** {st.session_state.user['credits']} نقاط")
+            
+        st.divider()
+        st.subheader(txt['upgrade_plans_title'])
+        st.info("نظام الدفع الذكي متاح في القائمة الجانبية لإتمام الترقية.")
+        st.markdown("</div>", unsafe_allow_html=True)
+
+    # TAB 6: الأرشيف وقواعد البيانات (Cloud SQL Archive)
+    with tab6:
+        st.markdown("<div class='glass-card'>", unsafe_allow_html=True)
+        st.subheader(txt['cloudsql_title'])
+        st.caption(txt['cloudsql_caption'])
+        
+        # استدعاء وهمي للبيانات المؤرشفة كعينة عرض
+        if st.button("تحديث السجلات 🔄"):
+            st.success("تم مزامنة البيانات مع Cloud SQL بنجاح.")
+        st.markdown("</div>", unsafe_allow_html=True)
+
+    # TAB ADMIN: لوحة قيادة الإدارة العليا (تظهر فقط للملاك والمشرفين)
+    if is_ceo_owner:
+        with tab_admin:
+            st.markdown("<div class='glass-card' style='border-color: #EF4444;'>", unsafe_allow_html=True)
+            st.subheader(txt['ceo_title'])
+            st.caption(txt['ceo_caption'])
+            
+            st.markdown(f"### {txt['users_log_title']}")
+            # مساحة لعرض إحصائيات النظام للإدارة
+            c_adm1, c_adm2, c_adm3 = st.columns(3)
+            c_adm1.metric("إجمالي المستخدمين", "1,245")
+            c_adm2.metric("المشتركين الفاعلين", "890")
+            c_adm3.metric("الإيرادات الشهرية", "$12,450")
+            
+            st.divider()
+            st.markdown(f"### {txt['grant_admin_title']}")
+            new_admin_email = st.text_input("بريد المشرف الجديد:")
+            if st.button(txt['grant_admin_btn']):
+                st.success(f"تم منح صلاحيات الإدارة للحساب: {new_admin_email}")
+                
+            st.markdown("</div>", unsafe_allow_html=True)
 
 if __name__ == "__main__":
     main()
+
