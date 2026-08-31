@@ -8,6 +8,7 @@
 ===============================================================================
 """
 
+import os
 import json
 import time
 import pandas as pd
@@ -58,6 +59,7 @@ T = {
         'wa_phone': "رقم الواتساب", 'tg_handle': "معرف التليجرام",
         'tab1': "🏗️ بناء الخطة والكوادر", 
         'tab_eng': "📐 التخطيط الهندسي وقراءة المخططات",
+        'tab_telephony': "📞 الاتصال والرسائل النصية",
         'tab2': "📊 التحليلات التفاعلية 6D",
         'tab3': "✏️ محرر المهام والتقرير النصي", 
         'tab4': "🔄 التغذية الراجعة والتكيّف السعري",
@@ -88,6 +90,7 @@ T = {
         'wa_phone': "WhatsApp Phone", 'tg_handle': "Telegram Handle",
         'tab1': "🏗️ Build Plan & Payroll", 
         'tab_eng': "📐 Blueprint Analysis & Engineering",
+        'tab_telephony': "📞 Telephony & Communications",
         'tab2': "📊 Advanced 6D Analytics",
         'tab3': "✏️ Task Editor & Text Plan", 
         'tab4': "🔄 Feedback & Pricing",
@@ -122,6 +125,34 @@ def apply_template(scope, domain, budget, days, pname):
     st.session_state.form_budget = budget
     st.session_state.form_days = days
     st.session_state.form_pname = pname
+
+def generate_fallback_architecture(req):
+    """توليد هيكل افتراضي احترافي في حال عدم إدخال مفتاح Gemini API"""
+    b = req.get("budget", 3500)
+    d = req.get("target_days", 30)
+    pname = req.get("project_name", "مشروع جديد")
+    domain = req.get("domain", "تقنية المعلومات")
+    
+    tasks = [
+        {"id": 1, "task": "تحليل المتطلبات ورسم المخططات الهندسية", "duration_days": int(d*0.15), "cost": b*0.15, "owner": "مهندس النظام"},
+        {"id": 2, "task": "تصميم قاعدة البيانات Cloud SQL والهيكل الخلفي", "duration_days": int(d*0.25), "cost": b*0.25, "owner": "مطور Backend"},
+        {"id": 3, "task": "تطوير واجهات المستخدم والتكامل مع APIs", "duration_days": int(d*0.35), "cost": b*0.35, "owner": "مطور Frontend/Flutter"},
+        {"id": 4, "task": "اختبارات الأمان والتوقيع الرقمي HMAC-SHA512", "duration_days": int(d*0.15), "cost": b*0.15, "owner": "خبير الأمن الجنائي"},
+        {"id": 5, "task": "النشر السحابي والتشغيل النهائي", "duration_days": int(d*0.10), "cost": b*0.10, "owner": "مهندس DevOps"}
+    ]
+    
+    plan_data = {
+        "project_name": pname,
+        "domain": domain,
+        "budget": b,
+        "target_days": d,
+        "tech_stack": req.get("tech_stack", "Flutter, Node.js, Supabase"),
+        "risk": req.get("risk", "متوسط"),
+        "scope": req.get("scope", "نطاق عمل عام للمشروع"),
+        "tasks": tasks
+    }
+    plan_data["signature"] = SecurityEngine.generate_signature(plan_data)
+    return plan_data
 
 def main():
     st.set_page_config(page_title=APP_TITLE, page_icon="🛡️", layout="wide")
@@ -230,6 +261,7 @@ def main():
     tab_labels = [
         txt['tab1'], 
         txt['tab_eng'], 
+        txt['tab_telephony'],
         txt['tab2'], 
         txt['tab3'], 
         txt['tab4'], 
@@ -240,8 +272,8 @@ def main():
         tab_labels.append(txt['tab_admin'])
 
     tabs = st.tabs(tab_labels)
-    tab1, tab_eng, tab2, tab3, tab4, tab5, tab6 = tabs[:7]
-    tab_admin = tabs[7] if is_ceo_owner else None
+    tab1, tab_eng, tab_telephony, tab2, tab3, tab4, tab5, tab6 = tabs[:8]
+    tab_admin = tabs[8] if is_ceo_owner else None
 
     # TAB 1: BUILD PROJECT PLAN & SPECIALIST PAYROLL
     with tab1:
@@ -280,9 +312,16 @@ def main():
                         "target_days": target_days, "tech_stack": tech_stack, "scope": project_scope, "risk": risk_tolerance
                     }
                     
+                    active_key = gemini_key.strip() if gemini_key and gemini_key.strip() else os.environ.get("GEMINI_API_KEY")
+                    
                     try:
-                        ai_facade = AIFacade(api_key=gemini_key if gemini_key else None)
-                        plan = ai_facade.generate_architecture(req)
+                        if active_key:
+                            ai_facade = AIFacade(api_key=active_key)
+                            plan = ai_facade.generate_architecture(req)
+                        else:
+                            st.info("ℹ️ تم استخدام محرك توليد الخطط المدمج الافتراضي (لم يتم توفير مفتاح Gemini API).")
+                            plan = generate_fallback_architecture(req)
+
                         HybridDatabaseEngine.save_project_plan_full(plan, st.session_state.user['email'])
 
                         if not st.session_state.user['is_subscribed']:
@@ -294,7 +333,12 @@ def main():
                         st.session_state.plan_signature = plan.get("signature")
                         st.success("✅ تم توليد الخطة وحساب الكوادر وحفظها بتوقيع رقمي موثوق!")
                     except Exception as e:
-                        st.error(f"حدث خطأ أثناء التوليد: {str(e)}")
+                        st.warning(f"⚠️ تعذر الاتصال بـ Gemini API ({str(e)}). جاري استخدام المحرك الافتراضي للبدء...")
+                        plan = generate_fallback_architecture(req)
+                        HybridDatabaseEngine.save_project_plan_full(plan, st.session_state.user['email'])
+                        st.session_state.current_plan = plan
+                        st.session_state.plan_signature = plan.get("signature")
+                        st.success("✅ تم توليد الخطة الافتراضية الموثوقة بنجاح!")
 
         if st.session_state.current_plan:
             st.divider()
@@ -343,25 +387,22 @@ def main():
                 if st.button(txt['send_tg'], use_container_width=True):
                     st.success(f"✅ تم إرسال التنبيه إلى {st.session_state.notify_telegram}")
 
-            st.divider()
-            render_telephony_widget()
-
-    # TAB ENG: BLUEPRINT READER & STRUCTURAL ANALYSIS
+    # TAB ENG: BLUEPRINT READER & STRUCTURAL ANALYSIS (شامل لكافة الأقسام)
     with tab_eng:
-        st.header("📐 التخطيط الهندسي وتحليل المخططات المعمارية")
-        st.write("قم برفع ملف المخطط (PDF / صورة) لاستخراج جدول الكميات BOQ والتحليل الإنشائي وتقييم الاستدامة.")
+        st.header("📐 التخطيط الهندسي وقراءة المخططات المعمارية والإنشائية")
+        st.caption("نظام الفحص التلقائي واستخراج كميات مواد البناء، تقييم السلامة الإنشائية، ومواصفات الاستدامة.")
 
-        uploaded_file = st.file_uploader("اختر ملف المخطط الهندسي", type=["pdf", "png", "jpg", "jpeg"], key="blueprint_uploader")
+        uploaded_file = st.file_uploader("اختر ملف المخطط الهندسي (PDF / صورة)", type=["pdf", "png", "jpg", "jpeg"], key="blueprint_uploader")
 
         col_area, col_floors = st.columns(2)
         with col_area:
             land_area = st.number_input("مساحة الأرض التقديرية (م²):", min_value=50.0, value=200.0, step=10.0, key="eng_land_area")
         with col_floors:
-            floors_count = st.number_input("عدد الطوابق:", min_value=1, value=2, step=1, key="eng_floors_count")
+            floors_count = st.number_input("عدد الطوابق الإجمالي:", min_value=1, value=2, step=1, key="eng_floors_count")
 
-        if st.button("🔍 تحليل المخطط وتنفيذ خطة الهندسة", type="primary", use_container_width=True):
+        if st.button("🔍 تحليل المخطط واستخراج كافة التقارير الهندسية", type="primary", use_container_width=True):
             if uploaded_file is None:
-                st.warning("يرجى رفع ملف المخطط أولاً.")
+                st.warning("يرجى رفع ملف المخطط أولاً لإنشاء التحليل.")
             else:
                 file_bytes = uploaded_file.read()
                 mime_type = uploaded_file.type
@@ -369,7 +410,7 @@ def main():
 
                 try:
                     facade = AIFacade(api_key=user_gemini_key if user_gemini_key else None)
-                    with st.spinner("جاري فحص المخطط وحساب الكميات والتحليل الإنشائي..."):
+                    with st.spinner("جاري فحص المخطط وقراءة الكميات والتحليل الإنشائي والسلامة..."):
                         result = facade.process_full_engineering_pipeline(
                             file_bytes=file_bytes,
                             mime_type=mime_type,
@@ -380,22 +421,68 @@ def main():
                 except Exception as e:
                     st.error(f"حدث خطأ أثناء معالجة المخطط: {str(e)}")
 
-        # عرض نتائج التحليل إذا كانت محفوظة في Session State
+        # عرض نتائج التحليل الكامل بكافة أقسامها
         res = st.session_state.engineering_analysis_result
         if res:
             if res.get("success"):
-                st.success("🎉 تم تحليل المخطط والهيكل الهندسي بنجاح!")
-                res_tab1, res_tab2, res_tab3 = st.tabs(["🏛️ الهيكل المعماري", "📊 جدول الكميات BOQ", "🌱 الاستدامة والإنشاء"])
+                st.success("🎉 تم تحليل المخطط الهيكلي وصدور التقرير الهندسي الشامل!")
+                res_tab1, res_tab2, res_tab3, res_tab4 = st.tabs([
+                    "🏛️ الهيكل والمواصفات المعمارية", 
+                    "📊 جدول كميات المواد (BOQ)", 
+                    "📐 السلامة والتحليل الإنشائي", 
+                    "🌱 تقييم الاستدامة والطاقة"
+                ])
 
                 with res_tab1:
+                    st.subheader("🏛️ تفاصيل الهيكل والمواصفات المعمارية")
                     st.json(res.get("architecture", {}))
+                
                 with res_tab2:
-                    st.json(res.get("boq", {}))
+                    st.subheader("📊 جدول حساب الكميات والتكلفة التقديرية (BOQ Breakdown)")
+                    boq_data = res.get("boq", {})
+                    if isinstance(boq_data, dict) and "items" in boq_data:
+                        st.dataframe(pd.DataFrame(boq_data["items"]), use_container_width=True)
+                    else:
+                        st.json(boq_data)
+                
                 with res_tab3:
-                    st.write("**التحليل الإنشائي:**", res.get("structural", {}))
-                    st.write("**تقييم الاستدامة:**", res.get("sustainability", {}))
+                    st.subheader("📐 السلامة الإنشائية والأحمال والتسليح")
+                    st.write(res.get("structural", {}))
+                
+                with res_tab4:
+                    st.subheader("🌱 تقييم الاستدامة والبصمة الكربونية وكفاءة الطاقة")
+                    st.write(res.get("sustainability", {}))
             else:
                 st.error(f"❌ تم رفض المخطط من المحرك الهندسي: {res.get('reason')}")
+
+    # TAB TELEPHONY: COMMUNICATIONS & MESSAGING
+    with tab_telephony:
+        st.header("📞 مركز الاتصالات الموحد والرسائل النصية (Telephony Hub)")
+        st.caption("أداة مجانية للاتصال المباشر عبر SIP/WebRTC وتوجيه الرسائل النصية الفورية للعملاء والفرق الفنية.")
+        
+        col_tel1, col_tel2 = st.columns([1, 1])
+        
+        with col_tel1:
+            st.subheader("🎙️ لوحة الاتصال الصوتي المباشر")
+            render_telephony_widget()
+            
+        with col_tel2:
+            st.subheader("💬 بوابة إرسال الرسائل النصية والـ SMS")
+            with st.form("sms_dispatcher_form"):
+                target_phone = st.text_input("رقم هاتف المستلم (مع الرمز الدولي)", value=st.session_state.notify_whatsapp)
+                message_text = st.text_area("نص الرسالة الفورية", value="مرحباً، تم تحديث بيانات مشروعك بنجاح في منصة PHOENIX PRO.")
+                send_sms_btn = st.form_submit_button("🚀 إرسال الرسالة النصية الآن")
+                
+                if send_sms_btn:
+                    if target_phone:
+                        telephony_eng = TelephonyEngine()
+                        res = telephony_eng.send_sms(target_phone, message_text)
+                        if res.get("success"):
+                            st.success(f"✅ تم إرسال الرسالة بنجاح إلى الرقم {target_phone}")
+                        else:
+                            st.error(f"❌ تعذر الإرسال: {res.get('error')}")
+                    else:
+                        st.warning("يرجى إدخال رقم هاتف المستلم أولاً.")
 
     # TAB 2: ADVANCED 6D INTERACTIVE ANALYTICS
     with tab2:
