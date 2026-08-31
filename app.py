@@ -4,7 +4,7 @@
 """
 ===============================================================================
 © 2026 PHOENIX & MIHNA AGENT PRO ENTERPRISE ARCHITECTURE v14.0 - HYBRID ULTIMATE
-الواجهة الرئيسية ومسار تشغيل التطبيق بعد التقسيم الهيكلي الموحد
+الواجهة الرئيسية ومسار تشغيل التطبيق بعد التقسيم الهيكلي الموحد والدمج الهندسي
 ===============================================================================
 """
 
@@ -43,11 +43,12 @@ def init_session():
     if 'form_budget' not in st.session_state: st.session_state.form_budget = 3500
     if 'form_days' not in st.session_state: st.session_state.form_days = 30
     if 'payment_notifications' not in st.session_state: st.session_state.payment_notifications = []
+    if 'engineering_analysis_result' not in st.session_state: st.session_state.engineering_analysis_result = None
 
 T = {
     'ar': {
         'title': "🚀 PHOENIX & MIHNA AGENT PRO Enterprise v14.0",
-        'subtitle': "المنصة المتقدمة لهندسة خطط المشاريع، حساب أجور المتخصصين، وتأمين البيانات بـ Cloud SQL و HMAC-SHA512.",
+        'subtitle': "المنصة المتقدمة لهندسة خطط المشاريع، قراءة المخططات الإنشائية، وتأمين البيانات بـ Cloud SQL و HMAC-SHA512.",
         'lang_select': "🌐 لغة الواجهة (Language):",
         'theme_select': "🎨 مظهر التطبيق (Theme):",
         'dark': "🌙 الداكن (Dark)", 'light': "☀️ الفاتح (Light)",
@@ -55,9 +56,13 @@ T = {
         'renew_title': "🛒 ترقية الاشتراك", 'renew_btn': "⚡ اشترك الآن وترقية الحساب",
         'logout_btn': "🚪 تسجيل الخروج", 'notify_settings': "📲 إعدادات الإشعارات الفورية",
         'wa_phone': "رقم الواتساب", 'tg_handle': "معرف التليجرام",
-        'tab1': "🏗️ بناء الخطة والكوادر", 'tab2': "📊 التحليلات التفاعلية 6D",
-        'tab3': "✏️ محرر المهام والتقرير النصي", 'tab4': "🔄 التغذية الراجعة والتكيّف السعري",
-        'tab5': "💳 الحساب والاشتراكات", 'tab6': "🗄️ أرشفة Cloud SQL Schema",
+        'tab1': "🏗️ بناء الخطة والكوادر", 
+        'tab_eng': "📐 التخطيط الهندسي وقراءة المخططات",
+        'tab2': "📊 التحليلات التفاعلية 6D",
+        'tab3': "✏️ محرر المهام والتقرير النصي", 
+        'tab4': "🔄 التغذية الراجعة والتكيّف السعري",
+        'tab5': "💳 الحساب والاشتراكات", 
+        'tab6': "🗄️ أرشفة Cloud SQL Schema",
         'tab_admin': "👑 لوحة الإدارة العليا (CEO Panel)",
         'quick_templates': "⚡ قوالب جاهزة للبدء السريع",
         'ecom': "🛒 متجر إلكتروني", 'edu': "🎓 منصة تعليمية", 'delivery': "🚗 تطبيق توصيل",
@@ -73,7 +78,7 @@ T = {
     },
     'en': {
         'title': "🚀 PHOENIX & MIHNA AGENT PRO Enterprise v14.0",
-        'subtitle': "Advanced Engineering Project Plan Builder & Specialist Payroll Engine Secured with Cloud SQL & HMAC-SHA512.",
+        'subtitle': "Advanced Engineering Project Plan Builder & Blueprint Reader Secured with Cloud SQL & HMAC-SHA512.",
         'lang_select': "🌐 Interface Language:",
         'theme_select': "🎨 Application Theme:",
         'dark': "🌙 Dark", 'light': "☀️ Light",
@@ -81,9 +86,13 @@ T = {
         'renew_title': "🛒 Upgrade Plan", 'renew_btn': "⚡ Upgrade & Subscribe Now",
         'logout_btn': "🚪 Log Out", 'notify_settings': "📲 Instant Notification Settings",
         'wa_phone': "WhatsApp Phone", 'tg_handle': "Telegram Handle",
-        'tab1': "🏗️ Build Plan & Payroll", 'tab2': "📊 Advanced 6D Analytics",
-        'tab3': "✏️ Task Editor & Text Plan", 'tab4': "🔄 Feedback & Pricing",
-        'tab5': "💳 Account & Subscriptions", 'tab6': "🗄️ Cloud SQL Archive",
+        'tab1': "🏗️ Build Plan & Payroll", 
+        'tab_eng': "📐 Blueprint Analysis & Engineering",
+        'tab2': "📊 Advanced 6D Analytics",
+        'tab3': "✏️ Task Editor & Text Plan", 
+        'tab4': "🔄 Feedback & Pricing",
+        'tab5': "💳 Account & Subscriptions", 
+        'tab6': "🗄️ Cloud SQL Archive",
         'tab_admin': "👑 CEO & Admin Panel",
         'quick_templates': "⚡ Quick Start Templates",
         'ecom': "🛒 E-Commerce App", 'edu': "🎓 E-Learning Platform", 'delivery': "🚗 Delivery App",
@@ -218,14 +227,21 @@ def main():
 
     is_ceo_owner = (st.session_state.user['email'] in SUPER_ADMIN_EMAILS) or st.session_state.user['is_admin']
     
+    tab_labels = [
+        txt['tab1'], 
+        txt['tab_eng'], 
+        txt['tab2'], 
+        txt['tab3'], 
+        txt['tab4'], 
+        txt['tab5'], 
+        txt['tab6']
+    ]
     if is_ceo_owner:
-        tab1, tab2, tab3, tab4, tab5, tab6, tab_admin = st.tabs([
-            txt['tab1'], txt['tab2'], txt['tab3'], txt['tab4'], txt['tab5'], txt['tab6'], txt['tab_admin']
-        ])
-    else:
-        tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
-            txt['tab1'], txt['tab2'], txt['tab3'], txt['tab4'], txt['tab5'], txt['tab6']
-        ])
+        tab_labels.append(txt['tab_admin'])
+
+    tabs = st.tabs(tab_labels)
+    tab1, tab_eng, tab2, tab3, tab4, tab5, tab6 = tabs[:7]
+    tab_admin = tabs[7] if is_ceo_owner else None
 
     # TAB 1: BUILD PROJECT PLAN & SPECIALIST PAYROLL
     with tab1:
@@ -250,7 +266,7 @@ def main():
                 risk_tolerance = st.select_slider(txt['risk_level'], options=["منخفض جداً", "متوسط", "عالي"])
 
             project_scope = st.text_area(txt['scope'], key="form_scope", placeholder="اكتب تفاصيل ومتطلبات المشروع هنا...")
-            gemini_key = st.text_input("مفتاح Gemini API (اختياري للذكاء الاصطناعي المباشر)", type="password")
+            gemini_key = st.text_input("مفتاح Gemini API (اختياري للذكاء الاصطناعي المباشر)", type="password", key="gemini_key_input")
 
             submit_btn = st.form_submit_button(txt['generate_btn'], use_container_width=True)
 
@@ -264,18 +280,21 @@ def main():
                         "target_days": target_days, "tech_stack": tech_stack, "scope": project_scope, "risk": risk_tolerance
                     }
                     
-                    ai_facade = AIFacade(api_key=gemini_key if gemini_key else None)
-                    plan = ai_facade.generate_architecture(req)
-                    HybridDatabaseEngine.save_project_plan_full(plan, st.session_state.user['email'])
+                    try:
+                        ai_facade = AIFacade(api_key=gemini_key if gemini_key else None)
+                        plan = ai_facade.generate_architecture(req)
+                        HybridDatabaseEngine.save_project_plan_full(plan, st.session_state.user['email'])
 
-                    if not st.session_state.user['is_subscribed']:
-                        new_c = max(0, st.session_state.user['credits'] - 1)
-                        HybridDatabaseEngine.update_credits(st.session_state.user['email'], new_c)
-                        st.session_state.user['credits'] = new_c
+                        if not st.session_state.user['is_subscribed']:
+                            new_c = max(0, st.session_state.user['credits'] - 1)
+                            HybridDatabaseEngine.update_credits(st.session_state.user['email'], new_c)
+                            st.session_state.user['credits'] = new_c
 
-                    st.session_state.current_plan = plan
-                    st.session_state.plan_signature = plan.get("signature")
-                    st.success("✅ تم توليد الخطة وحساب الكوادر وحفظها بتوقيع رقمي موثوق!")
+                        st.session_state.current_plan = plan
+                        st.session_state.plan_signature = plan.get("signature")
+                        st.success("✅ تم توليد الخطة وحساب الكوادر وحفظها بتوقيع رقمي موثوق!")
+                    except Exception as e:
+                        st.error(f"حدث خطأ أثناء التوليد: {str(e)}")
 
         if st.session_state.current_plan:
             st.divider()
@@ -326,6 +345,57 @@ def main():
 
             st.divider()
             render_telephony_widget()
+
+    # TAB ENG: BLUEPRINT READER & STRUCTURAL ANALYSIS
+    with tab_eng:
+        st.header("📐 التخطيط الهندسي وتحليل المخططات المعمارية")
+        st.write("قم برفع ملف المخطط (PDF / صورة) لاستخراج جدول الكميات BOQ والتحليل الإنشائي وتقييم الاستدامة.")
+
+        uploaded_file = st.file_uploader("اختر ملف المخطط الهندسي", type=["pdf", "png", "jpg", "jpeg"], key="blueprint_uploader")
+
+        col_area, col_floors = st.columns(2)
+        with col_area:
+            land_area = st.number_input("مساحة الأرض التقديرية (م²):", min_value=50.0, value=200.0, step=10.0, key="eng_land_area")
+        with col_floors:
+            floors_count = st.number_input("عدد الطوابق:", min_value=1, value=2, step=1, key="eng_floors_count")
+
+        if st.button("🔍 تحليل المخطط وتنفيذ خطة الهندسة", type="primary", use_container_width=True):
+            if uploaded_file is None:
+                st.warning("يرجى رفع ملف المخطط أولاً.")
+            else:
+                file_bytes = uploaded_file.read()
+                mime_type = uploaded_file.type
+                user_gemini_key = st.session_state.get("gemini_key_input", "")
+
+                try:
+                    facade = AIFacade(api_key=user_gemini_key if user_gemini_key else None)
+                    with st.spinner("جاري فحص المخطط وحساب الكميات والتحليل الإنشائي..."):
+                        result = facade.process_full_engineering_pipeline(
+                            file_bytes=file_bytes,
+                            mime_type=mime_type,
+                            metadata={"land_area": land_area, "floors": floors_count}
+                        )
+                        st.session_state.engineering_analysis_result = result
+
+                except Exception as e:
+                    st.error(f"حدث خطأ أثناء معالجة المخطط: {str(e)}")
+
+        # عرض نتائج التحليل إذا كانت محفوظة في Session State
+        res = st.session_state.engineering_analysis_result
+        if res:
+            if res.get("success"):
+                st.success("🎉 تم تحليل المخطط والهيكل الهندسي بنجاح!")
+                res_tab1, res_tab2, res_tab3 = st.tabs(["🏛️ الهيكل المعماري", "📊 جدول الكميات BOQ", "🌱 الاستدامة والإنشاء"])
+
+                with res_tab1:
+                    st.json(res.get("architecture", {}))
+                with res_tab2:
+                    st.json(res.get("boq", {}))
+                with res_tab3:
+                    st.write("**التحليل الإنشائي:**", res.get("structural", {}))
+                    st.write("**تقييم الاستدامة:**", res.get("sustainability", {}))
+            else:
+                st.error(f"❌ تم رفض المخطط من المحرك الهندسي: {res.get('reason')}")
 
     # TAB 2: ADVANCED 6D INTERACTIVE ANALYTICS
     with tab2:
@@ -558,7 +628,7 @@ def main():
             st.info("لا توجد مشاريع محفوظة حالياً.")
 
     # TAB ADMIN: CEO CONTROL PANEL
-    if is_ceo_owner:
+    if is_ceo_owner and tab_admin is not None:
         with tab_admin:
             st.subheader("👑 لوحة قيادة الإدارة العليا والمالك (CEO Control Center)")
             st.caption("مرحباً بك! هذه الصفحة مخفية عن جميع المستخدمين العاديين وتظهر فقط للمشرفين المعتمدين.")
